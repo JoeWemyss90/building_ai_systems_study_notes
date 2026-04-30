@@ -804,11 +804,77 @@ Type: Non-linear
 
 General models may underperform on specialised domains. Fine-tuning via continued pre-training or task-specific objectives can help.
 
+Fine-tuning embeddings means adapting a general embedding model so that texts that are “similar” in your specific domain are placed close together in vector space.
+
+A general embedding model may know that:
+
+"refund policy" ≈ "return policy"
+
+But in a legal, medical, finance, or internal company setting, the notion of similarity may be more specialised. For example, in a medical system:
+
+"myocardial infarction" ≈ "heart attack"
+
+Or in software support:
+
+"authentication timeout" ≈ "login session expired"
+
+A general model may partially understand these, but a domain-tuned embedding model can retrieve better results because it has learned the terminology and relationships that matter in
+that domain.
+
+Fine-tuning usually uses pairs or triplets:
+
+Query: "How do I reset my password?"
+Positive document: "Password reset instructions"
+Negative document: "Refund policy"
+
+The model is trained to move the query closer to the positive document and farther from the negative document.
+
+The trade-off is maintenance. Once you fine-tune an embedding model, you now own a custom model. You need to version it, evaluate it, monitor whether it still performs well, and often
+re-embed your vector database if the model changes.
+
+A good rule:
+
+Use a strong general embedding model first.
+Fine-tune only when evaluation shows domain-specific retrieval failures.
+
 Trade-off: performance gains vs. maintenance burden of a custom model.
 
 ### Ethical Considerations
 
 Embeddings encode biases present in training data (gender, racial, cultural stereotypes in vector space). This leads to biased retrieval and potentially discriminatory downstream systems. Practitioners must test for and mitigate these biases.
+
+Embeddings learn patterns from training data. If the training data contains stereotypes, social biases, or historical inequalities, the embedding space can preserve those patterns.
+
+For example, older word embeddings famously associated:
+
+"man" closer to "doctor"
+"woman" closer to "nurse"
+
+This matters because embeddings are often used inside real systems:
+
+- search ranking
+- recommendation systems
+- hiring filters
+- content moderation
+- customer segmentation
+- fraud detection
+- medical triage
+
+If the embedding space is biased, the downstream system can behave unfairly even if no explicit rule says “treat groups differently”.
+
+In RAG, bias can appear as biased retrieval. If documents about one group are retrieved more often, or certain viewpoints are systematically ranked higher, the generated answer will
+inherit that skew.
+
+Mitigation involves:
+
+- evaluating retrieval results across demographic groups
+- testing with adversarial examples
+- inspecting nearest neighbours for sensitive terms
+- using diverse training data
+- applying fairness-aware evaluation
+- keeping humans involved in high-stakes decisions
+
+The key point is that embeddings feel mathematical and neutral, but they encode human language and human data, so they can encode human bias.
 
 ---
 
@@ -817,6 +883,34 @@ Embeddings encode biases present in training data (gender, racial, cultural ster
 ### Why Vector Databases Exist
 
 Traditional relational databases support exact-match and range queries. Semantic search requires finding the *most similar* vectors to a query vector among billions of candidates. Naive O(n) exhaustive search is intractable at scale.
+
+A vector database stores embeddings and lets us search for the nearest vectors efficiently.
+
+In a traditional database, you might search like this:
+
+SELECT * FROM documents
+WHERE title = 'refund policy';
+
+That works for exact matching. But semantic search asks a different question:
+
+Find documents whose meaning is similar to:
+"Can I get my money back?"
+
+The relevant document might never use the phrase “money back”. It might say:
+
+"Our refund policy allows returns within 30 days."
+
+A vector database makes this possible by comparing the query embedding with document embeddings.
+
+The naive approach would compare the query against every document vector:
+
+1 query × 10 million vectors = 10 million similarity calculations
+
+That may be too slow for production systems. Vector databases use approximate nearest neighbour algorithms to find very similar vectors without checking every vector exhaustively.
+
+So the purpose of a vector database is:
+
+Store embeddings + search them quickly + return semantically similar items.
 
 ### Similarity Metrics
 
