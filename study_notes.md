@@ -888,8 +888,11 @@ A vector database stores embeddings and lets us search for the nearest vectors e
 
 In a traditional database, you might search like this:
 
+```sql
+
 SELECT * FROM documents
 WHERE title = 'refund policy';
+```
 
 That works for exact matching. But semantic search asks a different question:
 
@@ -1214,12 +1217,74 @@ The trade-off is complexity. More chunks means better precision, but also more s
 - **Goodhart's Law in disguise**: the metrics you choose determine what you optimise for. Wrong metrics → systems that score well but fail users.
 - Poor evaluation leads to failed deployments, user trust erosion, and firefighting costs greater than the evaluation investment itself.
 
+Evaluation is how we know whether an AI system is actually working.
+
+With traditional software, correctness is often binary:
+
+Did the function return the expected value?
+Did the API return 200?
+Did the database update succeed?
+
+With AI systems, correctness is often fuzzy:
+
+Was the answer helpful?
+Was it grounded in the evidence?
+Was it safe?
+Was it complete enough?
+Was it too verbose?
+
+This makes evaluation much harder, but also more important.
+
+A model can appear impressive in demos while failing in production because real users ask messy, ambiguous, unexpected questions. Without evaluation, teams often rely on intuition: “this output looks good to
+me”. That is not reliable enough for production systems.
+
+Evaluation turns vague quality into measurable criteria.
+
+Example:
+
+Bad evaluation:
+"The chatbot should give good answers."
+
+Better evaluation:
+"For customer refund questions, the chatbot should:
+- retrieve the correct policy document
+- answer using only that document
+- mention the refund window
+- refuse to invent policy details
+- respond in under 3 seconds"
+
+The key idea:
+
+Evaluation is the specification for an AI system.
+
+If you do not define what “good” means, you cannot systematically improve the system.
+
 ### The Evaluation Lifecycle
 
 1. **Development-time**: rapid iteration, debugging, fast feedback.
 2. **Pre-deployment validation**: comprehensive testing before release.
 3. **Production monitoring**: continuous assessment of live behaviour.
 4. **Feedback loops**: learning from real-world failures.
+
+Evaluation should happen throughout the whole system lifecycle, not just at the end.
+
+During development, evaluation helps compare prompts, models, retrievers, chunking strategies, and temperature settings. This is usually fast and iterative.
+
+Example:
+
+Prompt A answers 72/100 test questions correctly.
+Prompt B answers 81/100 test questions correctly.
+Prompt B is better, assuming latency and cost are acceptable.
+
+Before deployment, evaluation becomes more formal. You test against a fixed validation dataset that represents real expected use cases and known edge cases.
+
+In production, evaluation continues because user behaviour changes. New documents are added, old policies become outdated, users ask unexpected questions, and model providers may update their systems.
+
+A useful lifecycle is:
+
+Develop → Evaluate → Deploy → Monitor → Collect feedback → Improve → Re-evaluate
+
+The important point is that AI systems degrade silently. They may not crash; they may simply become less accurate, less grounded, or less useful.
 
 ### Dimensions of Quality
 
@@ -1229,6 +1294,43 @@ The trade-off is complexity. More chunks means better precision, but also more s
 | Content quality | Relevance, coherence, factuality |
 | User experience | Helpfulness, safety, appropriateness |
 | Operational | Cost, reliability, maintainability |
+
+AI systems must be evaluated across multiple dimensions.
+
+A response might be fluent but factually wrong. It might be accurate but too slow. It might be helpful but unsafe. It might answer correctly but ignore required formatting.
+
+For example, consider this user query:
+
+"What is the company refund policy?"
+
+A response can be judged on:
+
+**Relevance**:
+Does it answer the refund question?
+
+**Factuality**:
+Is the policy information correct?
+
+**Groundedness**:
+Is the answer supported by retrieved documents?
+
+**Completeness**:
+Does it include key conditions, deadlines, and exceptions?
+
+**Clarity**:
+Is it understandable to the user?
+
+**Safety/compliance**:
+Does it avoid giving unauthorised promises?
+
+**Latency**:
+Was it fast enough?
+
+**Cost**:
+Was the model unnecessarily expensive for this task?
+
+This is why a single metric is rarely enough. A production AI system usually needs a scorecard.
+
 
 ### Automated Evaluation Metrics
 
