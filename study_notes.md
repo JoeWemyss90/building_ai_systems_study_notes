@@ -932,12 +932,64 @@ Ranges from −1 (opposite) to 1 (identical). Geometrically: measures the angle 
 
 **Similarity thresholds** are task-dependent (no universal "similar" cutoff). Always plot your similarity score distribution and calibrate for your specific corpus.
 
+Similarity metrics define what “close” means in vector space.
+
+Cosine similarity measures the angle between two vectors. It ignores vector length and focuses on direction. This is common for text because meaning is usually encoded by direction rather than magnitude.
+
+Example:
+
+A = "How do I reset my password?"
+B = "Password reset instructions"
+C = "How do I cancel my order?"
+
+The embedding for A should point in a similar direction to B, so cosine similarity should be high. C may also be about customer support, but it is about a different task, so similarity should be lower.
+
+Dot product is similar to cosine similarity if vectors are normalised. Many systems normalise vectors once, then use dot product because it is faster.
+
+Euclidean distance measures straight-line distance. It is useful when vector magnitude matters, but it is less common for modern text retrieval.
+
+Important practical point:
+
+There is no universal similarity threshold.
+
+A cosine score of 0.78 might be excellent in one system and weak in another. You need to inspect score distributions and evaluate against labelled examples.
 
 ### Approximate Nearest Neighbour (ANN) Search
 
 Exact search is O(n) — intractable at billions of vectors. ANN methods trade a small accuracy loss for massive speed gains.
 
 **Key insight**: 99% accuracy with 100× speedup is almost always the right trade-off.
+
+
+Exact nearest neighbour search checks every vector and returns the true closest matches. This is accurate but expensive.
+
+Approximate nearest neighbour search trades a small amount of accuracy for much faster search.
+
+For example:
+
+Exact search:
+- Checks 10 million vectors
+- Finds the true top 10
+- Too slow
+
+ANN search:
+- Checks a small fraction of vectors
+- Finds almost the same top 10
+- Fast enough for production
+
+This trade-off is usually worthwhile. In many systems, retrieving a near-perfect set of results quickly is better than retrieving the mathematically perfect set too slowly.
+
+ANN systems are evaluated using recall@k:
+
+If the exact top 10 contains documents A, B, C...
+How many of those did the ANN index retrieve?
+
+You tune ANN indexes by balancing:
+
+- recall
+- latency
+- memory usage
+- index build time
 
 ### HNSW (Hierarchical Navigable Small World)
 
@@ -951,6 +1003,32 @@ The dominant algorithm used by Weaviate, Qdrant, and others:
 - **Performance**: excellent recall, fast queries, higher memory use.
 - Scales logarithmically — doubling data adds constant time, not double.
 
+HNSW stands for Hierarchical Navigable Small World. It is one of the most popular ANN algorithms.
+
+The intuition is like navigating a city map.
+
+At the top layer, there are only a few long-distance links. These help the search move quickly to the right general region.
+
+At lower layers, there are more detailed local links. These help the search refine its answer and find close neighbours.
+
+A query works roughly like this:
+
+1. Start at a high-level graph layer.
+2. Move toward vectors that look closer to the query.
+3. Drop down to a more detailed layer.
+4. Repeat until reaching the dense bottom layer.
+5. Return the nearest candidates found.
+
+HNSW is popular because it gives high recall and low query latency. The cost is memory: the graph stores extra links between vectors, so it uses more RAM than a simple flat index.
+
+Important parameters include:
+
+- M: number of graph connections per node
+- efConstruction: quality/speed trade-off during index building
+- efSearch: quality/speed trade-off during querying
+
+Higher values usually improve recall but increase memory, indexing time, or query latency.
+
 ### Inverted File Index (IVF)
 
 - Pre-cluster vectors into Voronoi cells.
@@ -958,12 +1036,55 @@ The dominant algorithm used by Weaviate, Qdrant, and others:
 - Used by Faiss.
 - Coarse-to-fine: cheap cluster selection, expensive within-cluster search.
 
+An IVF index speeds up search by clustering vectors.
+
+Instead of searching every vector, the system first groups vectors into clusters. At query time, it finds the most relevant clusters and searches only inside those.
+
+Example:
+
+Corpus: 10 million vectors
+Clusters: 10,000
+Query: search only the closest 10 clusters
+
+This dramatically reduces the number of comparisons.
+
+The key parameter is often called nprobe, which controls how many clusters are searched.
+
+Low `nprobe`:
+
+Fast but may miss relevant results.
+
+High `nprobe`:
+
+Slower but more accurate.
+
+IVF is useful for large-scale systems, especially when combined with compression techniques like product quantisation.
+
 ### Product Quantisation (PQ)
 
 - Problem: billions of 768-dim float32 vectors = terabytes of RAM.
 - PQ compresses vectors by splitting into sub-spaces and quantising each.
 - Achieves 10–32× compression with slight accuracy loss.
 - Enables serving large indices from RAM rather than disk.
+
+Product quantisation compresses vectors so they use less memory.
+
+A normal embedding might be stored as 1536 floating-point numbers. At large scale, this becomes expensive:
+
+1 million vectors × 1536 dimensions × 4 bytes ≈ 6 GB
+
+That is just for one million vectors. At hundreds of millions or billions of vectors, storage becomes a serious problem.
+
+PQ works by splitting a vector into smaller parts and replacing each part with a compact code.
+
+Instead of storing the full vector precisely, it stores an approximation.
+
+The trade-off:
+
+Much lower memory usage
+Slightly less accurate similarity search
+
+This is useful when the system needs to serve a very large index from RAM.
 
 ### Vector Database Landscape
 
@@ -975,6 +1096,22 @@ The dominant algorithm used by Weaviate, Qdrant, and others:
 
 **Cloud-managed vs. self-hosted**: Cloud is simpler to operate; self-hosted gives privacy and cost control at scale.
 
+There are three broad categories.
+
+Purpose-built vector databases, such as Pinecone, Weaviate, Qdrant, and Milvus, are designed specifically for vector search. They usually provide ANN indexes, metadata filtering, scaling, replication, and APIs.
+
+Traditional databases with vector extensions, such as PostgreSQL with pgvector, are useful when vector search is part of a broader application. They are often simpler to operate if your data already lives in Postgres.
+
+Embedded libraries, such as Faiss or HNSWlib, are lower-level. They are powerful and fast, but you must build more of the surrounding infrastructure yourself.
+
+
+A rough decision rule:
+
+**Prototype/small app**: Chroma, SQLite vector extensions, pgvector
+**Production app with existing relational data**: PostgreSQL + pgvector
+**Large-scale semantic search**: Qdrant, Weaviate, Milvus, Pinecone
+**Custom high-performance retrieval**: Faiss
+
 ### Metadata Filtering & Hybrid Search
 
 Real queries often combine vector similarity with structured filters: "Find similar documents *from 2024* about *AI safety*."
@@ -984,6 +1121,25 @@ Approaches:
 - **Pre-filtering**: apply metadata filter before vector search (risks missing relevant results if filter is too narrow).
 - **Post-filtering**: vector search first, then filter (can result in fewer than k results).
 - **Hybrid indices**: purpose-built support in databases like Qdrant and Weaviate.
+
+Vector similarity alone is often not enough.
+
+Suppose a user asks:
+
+>Find AI safety reports from 2024.
+
+The system needs both semantic similarity and structured constraints:
+
+**topic** ≈ "AI safety"
+**year** = 2024
+
+Metadata filtering lets us combine vector search with ordinary database-style filters.
+
+Pre-filtering means applying the metadata filter first, then vector search. This is efficient if the filter leaves enough candidates, but it can fail if the filtered set is too small.
+
+Post-filtering means doing vector search first, then removing results that do not match the metadata filter. This can produce too few final results if many retrieved items are filtered out.
+
+Good vector databases support hybrid approaches so metadata and vector similarity can work together efficiently.
 
 ### Vector Database Performance Metrics
 
@@ -995,6 +1151,25 @@ Approaches:
 | Index build time | Time to build the index from scratch |
 | Memory footprint | RAM required to serve the index |
 
+A vector database should be evaluated as a retrieval system and as an infrastructure component.
+
+Retrieval quality metrics:
+
+**Recall@k**: Did we retrieve the relevant item in the top k?
+**Precision@k**: How many of the top k results were relevant?
+**MRR**: How high was the first relevant result?
+**nDCG**: Were highly relevant results ranked near the top?
+
+Systems metrics:
+
+**Latency**: How long does a query take?
+**p95/p99** latency: How slow are the slowest normal requests?
+**QPS**: How many queries per second can the system handle?
+**Memory footprint**: How much RAM does the index require?
+**Index build time**: How long does ingestion take?
+
+For AI systems, p95 and p99 latency matter because users experience the slow requests, not the average request.
+
 ### Composite Embeddings for Long Documents
 
 Embedding a 50-page document as a single vector loses detail. Options:
@@ -1003,6 +1178,31 @@ Embedding a 50-page document as a single vector loses detail. Options:
 - **Hierarchical**: embed at document, section, and paragraph levels; route queries to appropriate level.
 
 Trade-off: information preservation vs. single-vector simplicity.
+
+
+A long document cannot usually be represented well by a single embedding.
+
+For example, a 50-page report might discuss:
+
+- pricing
+- legal constraints
+- technical architecture
+- risks
+- implementation timelines
+
+If you squash the whole document into one vector, the embedding becomes a vague average of many topics.
+
+Chunking solves this by embedding smaller sections separately. Then the system can retrieve the exact paragraph or section that answers the query.
+
+Hierarchical retrieval goes further:
+
+Document-level embedding: identifies the relevant document
+Section-level embedding: identifies the relevant section
+Paragraph-level embedding: identifies the precise evidence
+
+This is useful when documents are large and structured.
+
+The trade-off is complexity. More chunks means better precision, but also more storage, more indexing work, and more retrieval results to manage.
 
 ---
 
