@@ -3356,3 +3356,471 @@ Prototype success does not imply production readiness.
 - Failure is expected, so tools need structured errors, retries, fallbacks, and graceful degradation.
 - Observability enables improvement: measure latency, cost, success rates, failures, and anomalous use.
 - Architecture choices such as coupling, state, scope, and deployment determine long-term system quality.
+
+---
+
+## Lecture 10: AI Agents & Orchestration
+
+> Synthesised from Week 10 PDF: Agents.
+
+### What Makes an Agent Different?
+
+Traditional LLM interactions are usually:
+
+- Stateless.
+- Request-response based.
+- Driven by a human deciding the next step.
+- Focused on single-turn problem solving.
+
+Agent-based systems add:
+
+- State across interactions.
+- Autonomous decision-making.
+- Multi-step reasoning and planning.
+- Tool use.
+- Environment interaction.
+- Memory and adaptation over time.
+
+Simple distinction:
+
+- **LLM call**: "Answer this prompt."
+- **Agent**: "Work toward this goal using reasoning, tools, memory, and feedback."
+
+### Core Agent Components
+
+| Component | Role |
+|-----------|------|
+| Perception | Understand current state, input, available tools, and environment |
+| Reasoning | Decide what to do next based on goals and context |
+| Action | Execute decisions through tools, API calls, or responses |
+| Memory | Maintain context, past experience, user preferences, and task state |
+
+Agents are systems, not just prompts. Their behaviour emerges from how these components interact.
+
+### The ReAct Pattern
+
+**ReAct = Reasoning + Acting**.
+
+The agent cycles through:
+
+1. **Thought**: reason about the current situation.
+2. **Action**: choose a tool or response.
+3. **Observation**: inspect the result.
+4. Repeat until the goal is achieved or a stop condition is met.
+
+Typical loop:
+
+```
+User goal
+-> Thought
+-> Action/tool call
+-> Observation
+-> Thought
+-> Action/tool call
+-> Observation
+-> Final answer
+```
+
+Strengths:
+
+- Good for multi-step tasks.
+- Makes tool use explicit.
+- Supports iterative problem solving.
+
+Risks:
+
+- Can loop indefinitely.
+- Can misuse tools.
+- Can lose context.
+- Can become expensive due to repeated LLM calls.
+
+Mitigations:
+
+- Maximum iteration limits.
+- Better tool descriptions.
+- Tool argument validation.
+- Loop detection.
+- Logging intermediate steps.
+
+### Agent Architecture Patterns
+
+| Pattern | Structure | Best For |
+|---------|-----------|----------|
+| Single-agent with tools | One LLM coordinates multiple tools | Focused tasks with clear tool boundaries |
+| Chain-of-agents | Agents run sequentially like a pipeline | Workflows with distinct stages |
+| Hierarchical agents | Manager delegates to specialist agents | Complex tasks requiring different expertise |
+| Collaborative agents | Peer agents coordinate on shared goals | Problems benefiting from diverse perspectives |
+
+Architecture matters because it determines how work is decomposed, coordinated, debugged, and controlled.
+
+### Autonomy vs. Control
+
+More autonomy gives agents flexibility:
+
+- Handles unexpected situations.
+- Can pursue creative solutions.
+- Requires less human intervention.
+
+But autonomy adds risk:
+
+- Less predictable behaviour.
+- Harder debugging.
+- Higher chance of tool misuse.
+- More complex safety requirements.
+
+More control gives:
+
+- Bounded behaviour.
+- Easier validation.
+- Lower misuse risk.
+- Better auditability.
+
+But too much control limits adaptability.
+
+Best practice: use **task-appropriate autonomy**, not maximum autonomy.
+
+### Planning in Agent Systems
+
+Agents can plan in different ways.
+
+| Planning Type | Description | Trade-Off |
+|---------------|-------------|-----------|
+| Reactive planning | Decide based only on current state | Fast but limited foresight |
+| Forward planning | Generate action sequence before execution | Better foresight but more expensive |
+| Hierarchical planning | Break goals into subgoals recursively | Balanced and human-like |
+
+Planning is useful when tasks require multiple dependent steps, tool selection, or coordination.
+
+### ReWOO Pattern
+
+**ReWOO = Reasoning Without Observation**.
+
+It separates planning from execution:
+
+1. **Plan phase**: generate a complete action plan before executing tools.
+2. **Execution phase**: run planned actions, in parallel where possible.
+3. **Response phase**: synthesise results into final answer.
+
+Advantages:
+
+- Fewer LLM calls.
+- Lower latency and cost.
+- Easier parallelisation.
+- Execution failures are separated from reasoning.
+
+Trade-off: because the plan is created before observations, it may be less adaptive than ReAct.
+
+### Agent Reasoning Strategies
+
+| Strategy | Description | Best For |
+|----------|-------------|----------|
+| Chain-of-Thought | Step-by-step reasoning | Multi-step logic and calculations |
+| Tree-of-Thoughts | Explore and evaluate multiple reasoning paths | Problems with several possible approaches |
+| Self-Consistency | Generate multiple reasoning chains and aggregate | Reducing occasional reasoning errors |
+| Reflexion | Agent critiques and improves based on past attempts | Learning from failure and iterative improvement |
+
+Reasoning strategies can improve reliability but often increase cost and latency.
+
+### Multi-Agent Systems
+
+Multiple agents are useful when one monolithic agent becomes hard to manage.
+
+Benefits:
+
+- Specialisation by domain or task.
+- Scalability through distributed work.
+- Modularity: individual agents can be updated separately.
+- Robustness: one agent failure may not break the whole system.
+
+Challenges:
+
+- Coordination overhead.
+- Inconsistent outputs between agents.
+- Harder debugging.
+- Shared state conflicts.
+- Higher cost.
+- More complex evaluation.
+
+Use multi-agent designs only when the task complexity justifies them.
+
+### Communication Patterns in Multi-Agent Systems
+
+| Pattern | Description | Use When |
+|---------|-------------|----------|
+| Broadcast | One agent sends information to all agents | All agents need the same update |
+| Direct messaging | Agent-to-agent communication | Specific agent needs specific information |
+| Blackboard | Shared memory all agents can read/write | Collaborative problem solving |
+| Manager-worker | Central coordinator delegates subtasks | Clear hierarchy and task decomposition |
+
+Example manager-worker flow:
+
+```
+Manager receives task
+-> decomposes into subtasks
+-> assigns subtasks to specialist agents
+-> specialists return results
+-> manager synthesises final answer
+```
+
+### Agent Orchestration Patterns
+
+Orchestration coordinates agents and tools across workflows.
+
+| Pattern | Description |
+|---------|-------------|
+| Sequential orchestration | Agents execute in predefined order |
+| Parallel orchestration | Multiple agents work simultaneously |
+| Conditional orchestration | Runtime conditions decide which agent runs next |
+| Event-driven orchestration | Agents respond asynchronously to events |
+
+LangGraph-style state graphs are useful for orchestration because they make workflow state and transitions explicit.
+
+### State Management in Multi-Agent Workflows
+
+State management is difficult because workflows evolve over time and multiple agents may update shared state.
+
+Challenges:
+
+- **Consistency**: agents need a coherent view of state.
+- **Concurrency**: several agents may update state simultaneously.
+- **Persistence**: state should survive failures and restarts.
+- **Size**: state grows as workflows progress.
+- **Relevance**: not all old state should remain active.
+
+Patterns:
+
+- **Immutable state**: agents produce new state versions rather than mutating existing state.
+- **Event sourcing**: record changes as events.
+- **Checkpointing**: periodically save workflow snapshots.
+- **Selective persistence**: store only critical state.
+
+### Memory in Agents
+
+Memory lets agents behave coherently over time.
+
+Why memory matters:
+
+- Maintains context across turns.
+- Learns from previous successes and failures.
+- Supports personalisation.
+- Enables long-term behaviour.
+- Helps avoid repeating past mistakes.
+
+Types of memory:
+
+| Memory Type | Description |
+|-------------|-------------|
+| Short-term memory | Current conversation, task state, scratchpad |
+| Long-term memory | Persistent cross-session information |
+| Episodic memory | Specific past experiences or interactions |
+| Semantic memory | General learned facts, patterns, or preferences |
+
+### Memory Implementations
+
+Common implementations:
+
+| Memory Method | Strength | Weakness |
+|---------------|----------|----------|
+| Buffer memory | Keeps recent conversation exactly | Grows quickly, token expensive |
+| Summary memory | Compresses older context | May lose detail |
+| Vector memory | Retrieves semantically relevant past interactions | May miss important but semantically distant context |
+| Profile memory | Stores explicit user facts/preferences | Requires update and privacy controls |
+
+A strong architecture often combines short-term and long-term memory.
+
+### Memory Retrieval Strategies
+
+| Strategy | Benefit | Limitation |
+|----------|---------|------------|
+| Recency-based | Maintains conversational coherence | Misses older relevant information |
+| Relevance-based | Finds semantically similar past interactions | May miss critical context outside similarity |
+| Importance-weighted | Prioritises explicitly important memories | Requires scoring importance |
+| Hybrid | Combines recent, relevant, and important memory | More complex to implement |
+
+Practical pattern:
+
+1. Always include recent conversation.
+2. Retrieve semantically relevant past memory.
+3. Add explicitly important user preferences or constraints.
+4. Compress or summarise when context grows too large.
+
+### Agent Memory Lifecycle
+
+Memory lifecycle:
+
+```
+Input
+-> Encode
+-> Store
+-> Retrieve
+-> Use
+-> Update or forget
+```
+
+Memory systems should also support forgetting:
+
+- Remove outdated information.
+- Respect privacy requests.
+- Avoid retaining sensitive data unnecessarily.
+- Prevent irrelevant memories from polluting context.
+
+### Production Considerations for Agents
+
+Agents introduce production risks beyond normal LLM applications.
+
+| Area | Requirements |
+|------|--------------|
+| Reliability | Graceful degradation, timeouts, retries, recovery |
+| Safety | Rate limits, approvals, audit logs, sandboxing |
+| Cost | Token monitoring, caching, batching, smaller models for subtasks |
+| Observability | Logs, traces, metrics, feedback loops, continuous evaluation |
+| Security | Tool permissions, secret isolation, input validation |
+| Scalability | Load balancing, distributed memory, multi-region deployment where needed |
+
+Agents should not be given broad autonomy in production without guardrails and monitoring.
+
+### Ethical Considerations in Agent Systems
+
+Autonomous agents raise ethical questions:
+
+- Who is accountable when an agent makes a mistake?
+- Should the agent disclose that it is AI?
+- Can the agent amplify bias?
+- What personal data can the agent access or remember?
+- Could the agent be misused for spam, fraud, manipulation, or surveillance?
+- What decisions require human oversight?
+
+Example: a hiring agent reviewing CVs and screening candidates needs bias testing, transparency, appeal processes, privacy controls, and human decision-making authority.
+
+### Agent Evaluation Challenges
+
+Agent evaluation is harder than ordinary model evaluation because:
+
+- Outputs are non-deterministic.
+- Tasks involve multiple steps.
+- Failures can happen at any step.
+- External tools affect behaviour.
+- Agents may use different paths for the same goal.
+- Open-ended tasks may not have one correct answer.
+- Emergent behaviour is hard to predict.
+
+Traditional unit tests are necessary but not sufficient.
+
+### Agent Evaluation Framework
+
+Evaluation should happen at multiple levels.
+
+| Evaluation Type | Purpose |
+|-----------------|---------|
+| Unit testing | Test tools, memory, parsers, validators in isolation |
+| Integration testing | Test full workflows end-to-end |
+| Behavioural testing | Evaluate realistic tasks and outcome quality |
+| Continuous monitoring | Track production performance and degradation |
+| Human evaluation | Judge usefulness, safety, and task success |
+| Regression testing | Ensure known failures stay fixed |
+
+Useful metrics:
+
+- Task success rate.
+- Answer correctness.
+- Tool-call efficiency.
+- Number of unnecessary steps.
+- Latency.
+- Cost per task.
+- Safety violation rate.
+- Human escalation rate.
+- User satisfaction.
+
+### Debugging Agent Failures
+
+Common failure modes:
+
+| Failure | Description | Mitigation |
+|---------|-------------|------------|
+| Infinite loops | Agent repeats the same action | Max iterations, loop detection |
+| Tool misuse | Wrong tool or invalid arguments | Better tool descriptions, input validation |
+| Context loss | Agent forgets critical details | Better memory, context compression |
+| Reasoning failure | Logical contradiction or bad plan | Validation, reasoning checks |
+| Hallucinated tool calls | Agent invents unavailable tools | Explicit tool enumeration, strict parsing |
+| Over-autonomy | Agent takes inappropriate action | Approval workflows, permissions |
+
+Debugging requires traces of reasoning, tool calls, observations, and state changes.
+
+### Scaling Agent Systems
+
+Scaling path:
+
+| Stage | Typical Setup |
+|-------|---------------|
+| Development | 1-10 users, local LLMs, in-memory state, manual testing |
+| Staging | 10-100 users, cloud LLMs/fallbacks, database-backed memory, automated evaluation |
+| Production | 100s-1000s users, load-balanced APIs, distributed memory, continuous monitoring, cost optimisation |
+
+Production-scale agents need infrastructure, not just prompts.
+
+### Future Directions in Agent Research
+
+Emerging areas:
+
+- **Multimodal agents**: process text, images, audio, and video.
+- **Learning agents**: improve from experience and feedback.
+- **Human-agent teaming**: collaborative workflows with shared control.
+- **Ethical and aligned agents**: stronger safety and value alignment.
+- **Specialised agents**: scientific, legal, medical, coding, and enterprise agents.
+- **Agent frameworks**: LangGraph, CrewAI, AutoGPT-style systems, and domain-specific orchestration tools.
+
+These directions increase capability but also increase safety, evaluation, and governance requirements.
+
+### When to Use an Agent
+
+Use an agent when the task requires:
+
+- Multiple steps.
+- Tool use.
+- Planning.
+- Memory.
+- Adaptation to intermediate results.
+- Autonomous progress toward a goal.
+
+Avoid agents when:
+
+- A single prompt is enough.
+- A deterministic workflow would be simpler.
+- Tool use is unnecessary.
+- The cost of unpredictability is too high.
+- The task is high-stakes and lacks oversight.
+
+A simpler system is usually preferable if it solves the problem reliably.
+
+### Practical Multi-Agent Research System
+
+Example workshop system:
+
+```
+Research question
+-> planner decomposes into subtopics
+-> specialist research agents investigate subtopics
+-> citation/source tracker records evidence
+-> synthesis agent combines findings
+-> evaluator checks completeness and source coverage
+-> final report
+```
+
+Key implementation concerns:
+
+- Agent orchestration with LangGraph.
+- Specialist tools per agent.
+- Shared state and memory.
+- Citation tracking.
+- Evaluation and debugging.
+- Failure handling.
+
+### Key Takeaways
+
+- Agents require different design thinking than single LLM calls.
+- Autonomy introduces complexity, cost, and new failure modes.
+- Architecture choices shape what an agent can do and how safely it can do it.
+- Memory and state management are crucial for coherent long-term behaviour.
+- Multi-agent systems provide specialisation but add coordination overhead.
+- Evaluation and debugging are continuous practices because agent behaviour is non-deterministic.
+- Production agents need monitoring, safety controls, scalability planning, and ethical oversight.
