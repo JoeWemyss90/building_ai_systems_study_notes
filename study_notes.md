@@ -2239,3 +2239,501 @@ Decision factors:
 - Reranking and compression reduce context cost while preserving relevance.
 - Evaluation datasets, A/B tests, and production monitoring are required for reliable improvement.
 - Production RAG is a trade-off between precision, recall, latency, cost, privacy, and operational complexity.
+
+---
+
+## Lecture 08: Guardrails & Safety Mechanisms
+
+> Synthesised from Week 8 PDF: Guardrails.
+
+### The Alignment and Safety Problem
+
+Production AI systems interact with real users, real data, and real organisational responsibilities. Safety is not just about avoiding obviously harmful text; it is about designing systems that behave predictably, minimise harm, comply with policy, and fail safely.
+
+Safety has several dimensions:
+
+| Safety Type | Meaning |
+|-------------|---------|
+| Technical safety | System stability, predictable behaviour, robustness |
+| User safety | Avoiding harm to individual users |
+| Societal safety | Avoiding systemic or aggregate harm |
+| Organisational safety | Compliance, reputational risk, legal exposure |
+
+Key principle: **safety is context-dependent**. A low-stakes study assistant and a medical triage assistant need very different guardrails.
+
+### Common AI Safety Failure Modes
+
+| Failure Mode | Description |
+|--------------|-------------|
+| False negative | Harmful content slips through |
+| False positive | Legitimate content is incorrectly blocked |
+| Adversarial attack | User deliberately tries to bypass safeguards |
+| Emergent failure | System behaves unexpectedly at scale or in novel contexts |
+| Over-refusal | System refuses too often and becomes unusable |
+| Under-refusal | System complies with unsafe or disallowed requests |
+
+The goal is not perfect prevention. Perfect prevention is unrealistic. The goal is **risk reduction, detection, graceful degradation, and continuous improvement**.
+
+### Architectural Principles for Safe AI Systems
+
+1. **Defence in depth**: use multiple independent safety layers because any single layer can fail.
+2. **Fail safely**: when risk is high or uncertainty is large, refuse, escalate, or provide conservative guidance.
+3. **Observable behaviour**: if safety behaviour is not measured, it cannot be improved or secured.
+4. **Human in the loop**: high-stakes decisions require human review, escalation, or approval.
+5. **Context-aware controls**: different domains require different safety thresholds.
+
+Safe systems are not built by adding one moderation endpoint. They are built through layered architecture.
+
+### Regulatory Context
+
+Relevant regulatory patterns:
+
+- **EU AI Act**: risk-based regulation with stricter requirements for high-risk systems.
+- **UK approach**: sectoral and principles-based regulation.
+- **US approach**: fragmented regulation with federal and state-level developments.
+
+Practical implication: AI safety is both a technical and governance problem. Systems should be designed with auditability, access control, logging, and policy traceability from the start.
+
+### LangChain as Guardrail Infrastructure
+
+LangChain can support guardrails because its architecture is modular:
+
+- Safety checks can be inserted before, during, and after model calls.
+- Callbacks can monitor LLM behaviour.
+- Chains can compose validation, generation, moderation, and fallback steps.
+- It supports both local models such as Ollama and remote APIs such as OpenAI.
+
+Useful insertion points:
+
+| Pipeline Stage | Guardrail Examples |
+|----------------|-------------------|
+| Input | Prompt injection detection, content filters, rate limits |
+| Retrieval | Permission filters, metadata filters, source restrictions |
+| Prompt construction | Context limits, policy injection, sanitisation |
+| Generation | Model callbacks, constrained decoding, tool restrictions |
+| Output | Moderation, factual checks, schema validation |
+| Post-output | Logging, user feedback, escalation, incident detection |
+
+### Content Filtering
+
+Content filtering is the first line of defence, but it is not sufficient alone.
+
+Three main approaches:
+
+| Approach | Strengths | Weaknesses |
+|----------|-----------|------------|
+| Pattern matching | Fast, transparent, cheap | Brittle, easy to bypass, poor with nuance |
+| Classification models | Better category detection | Needs training data, can still miss context |
+| LLM-based moderation | Handles nuance and novel cases | Expensive, slower, moderator can fail too |
+
+Best practice: combine approaches rather than relying on one.
+
+### Pattern-Based Filters
+
+Pattern filters use rules such as regular expressions or keyword lists.
+
+Good for:
+
+- Known banned phrases.
+- Obvious policy violations.
+- Simple data leakage patterns.
+- Basic input sanitation.
+
+Weak for:
+
+- Encoded or obfuscated text.
+- Context-sensitive meaning.
+- Multi-turn manipulation.
+- Distinguishing discussion of harm from promotion of harm.
+
+Pattern matching is useful as a cheap first pass, not as the whole safety system.
+
+### The False Positive Problem
+
+False positives can cause harm when legitimate help-seeking is blocked.
+
+Example: a depression-support chatbot blocking phrases such as:
+
+- "I'm having dark thoughts"
+- "I feel like giving up"
+- "I don't want to be here anymore"
+
+These may indicate a user needs support, not that the user should be blocked.
+
+Design implication:
+
+- Distinguish **expressing distress** from **promoting harm**.
+- Prefer supportive escalation over blunt refusal in sensitive contexts.
+- Use confidence thresholds and human escalation for high-risk categories.
+
+### Classification-Based Moderation
+
+Classification models detect categories of unsafe content.
+
+Typical categories:
+
+- Violence and physical harm.
+- Hate speech and harassment.
+- Sexual content and child safety.
+- Self-harm and suicide.
+- Illegal activities.
+- Privacy and personal data leakage.
+
+Good moderation systems usually use:
+
+- Multiple classifiers or model ensembles.
+- Confidence thresholds.
+- Escalation when confidence is uncertain.
+- Human review for high-impact decisions.
+
+### LLM-Based Moderation
+
+LLM-based moderation uses a second model to judge input or output from the primary model.
+
+Advantages:
+
+- Better contextual reasoning.
+- Handles novel or ambiguous cases.
+- Can explain the reason for a safety decision.
+
+Disadvantages:
+
+- Adds latency.
+- Adds cost.
+- Can hallucinate or misclassify.
+- Can be attacked or manipulated itself.
+
+Use LLM moderation where nuance matters, especially for high-stakes or ambiguous content.
+
+### Prompt Injection and Jailbreaking
+
+Prompt injection attacks attempt to override the system's intended behaviour.
+
+Common attack vectors:
+
+- "Ignore previous instructions..."
+- Role-playing to bypass restrictions.
+- Encoding unsafe instructions.
+- Multi-turn attacks that gradually shift boundaries.
+- Instructions hidden in retrieved documents.
+- Exploiting weak system prompts.
+
+Critical insight: **perfect prevention is impossible**. Design for detection, containment, and graceful degradation.
+
+Mitigations:
+
+- Treat user input and retrieved documents as untrusted.
+- Separate system instructions from user-controllable content.
+- Validate tool calls and outputs.
+- Restrict what tools the model can access.
+- Monitor repeated bypass attempts.
+- Red-team the system continuously.
+
+### Layered Guardrail Architecture
+
+A practical guardrail pipeline:
+
+```
+User input
+-> Input validation
+-> Prompt injection checks
+-> Retrieval with permission filters
+-> Context sanitisation
+-> LLM generation
+-> Structured output validation
+-> Output moderation
+-> Grounding/factual checks
+-> Fallback or escalation if needed
+-> Logging and monitoring
+-> User response
+```
+
+Each layer handles a different risk. No layer should be assumed perfect.
+
+### Bias Detection
+
+Bias detection is harder than content filtering because fairness is contextual, cultural, and contested.
+
+Challenges:
+
+- Protected characteristics vary by jurisdiction.
+- Statistical fairness metrics can conflict.
+- Ground truth may be disputed.
+- Bias can appear through subtle wording, ranking, recommendations, or omissions.
+- Intersectional effects may be missed by simple group comparisons.
+
+Technical systems cannot decide what is fair on their own. They can make outcomes visible and measurable so policy decisions can be implemented.
+
+### Categories of Algorithmic Bias
+
+| Bias Type | Description |
+|-----------|-------------|
+| Training data bias | Historical patterns are encoded into data |
+| Representation bias | Some groups are overrepresented, others absent |
+| Measurement bias | Outcomes or labels are measured poorly |
+| Aggregation bias | Diverse groups are treated as one uniform group |
+| Evaluation bias | System is tested differently or insufficiently across groups |
+
+Post-hoc filtering alone cannot fix these. Bias often enters earlier in data collection, task design, labelling, and evaluation.
+
+### Technical Approaches to Bias Detection
+
+Common methods:
+
+- **Statistical parity analysis**: compare outcomes across demographic groups.
+- **Demographic parity difference**: measure output-rate differences between groups.
+- **Disparate impact analysis**: identify whether one group receives worse outcomes.
+- **Intersectional analysis**: test combinations of identities rather than one attribute at a time.
+- **Matched prompt testing**: compare outputs for prompts that differ only by demographic indicators.
+- **Causal analysis**: investigate whether protected attributes causally affect outcomes.
+
+Bias tests should be built into evaluation suites and rerun as models, prompts, and data change.
+
+### Bias Mitigation Strategies
+
+Bias mitigation can occur at different stages.
+
+| Stage | Strategies |
+|-------|------------|
+| Pre-processing | Data augmentation, reweighting, additional data collection, balancing representation |
+| In-processing | Fairness-aware prompting, constrained generation, adversarial debiasing |
+| Post-processing | Output rewriting, calibration, threshold adjustment, review workflows |
+
+Trade-offs:
+
+- Accuracy vs. fairness.
+- Simplicity vs. effectiveness.
+- Individual fairness vs. group fairness.
+- Consistency vs. context sensitivity.
+
+Bottom line: **bias mitigation is policy work supported by technical tools**, not a purely technical problem.
+
+### Output Validation
+
+Output validation constrains model behaviour after generation and can also guide generation upfront.
+
+Validation types:
+
+| Validation Type | Example |
+|-----------------|---------|
+| Format validation | Must produce valid JSON |
+| Schema validation | Must match a Pydantic model |
+| Logical consistency | Dates, totals, or claims must not contradict |
+| Business rules | Must include required disclaimers |
+| Factual grounding | Claims must be supported by retrieved sources |
+| Safety validation | Output must not contain disallowed content |
+
+Principle: **make invalid outputs impossible where possible, not merely filtered after generation**.
+
+### Structured Output
+
+Structured output uses schemas to force responses into predictable formats.
+
+Example fields for a safe response:
+
+- `content`: the actual response.
+- `confidence`: numeric confidence score.
+- `safety_flags`: list of detected risks.
+- `sources`: citations or document references.
+- `requires_human_review`: boolean escalation flag.
+
+Benefits:
+
+- Easier validation.
+- Easier downstream processing.
+- Better monitoring.
+- Clearer failure handling.
+
+### Factual Grounding
+
+LLMs can produce plausible but false claims. Guardrails should reduce hallucination risk.
+
+Mitigation approaches:
+
+- Retrieval-Augmented Generation to ground answers in documents.
+- Citation requirements.
+- External verification APIs for factual claims.
+- Claim extraction followed by evidence checking.
+- Confidence estimation and uncertainty language.
+- Refusal or escalation when evidence is missing.
+
+Important distinction:
+
+- RAG can reduce hallucinations.
+- RAG does not guarantee truth.
+- Retrieved context can be wrong, incomplete, outdated, or malicious.
+
+### Business Rule Enforcement
+
+Domain-specific rules often matter more than generic moderation.
+
+Examples:
+
+| Domain | Rule |
+|--------|------|
+| Finance | Must not provide unsuitable financial recommendations |
+| Healthcare | Must advise professional consultation for serious symptoms |
+| Legal | Must state that output is not legal advice |
+| Education | Must guide learning without completing assessed work |
+| HR | Must respect confidentiality and employment policy |
+
+Implementation options:
+
+- Programmatic validators.
+- Policy prompts.
+- Structured output requirements.
+- Human escalation.
+- Tool access restrictions.
+
+### Graceful Degradation and Fallbacks
+
+When validation fails, the system needs a planned response.
+
+Fallback options:
+
+| Fallback | Use When |
+|----------|----------|
+| Hard block | Risk is high and no safe answer is possible |
+| Conservative response | General safe guidance is acceptable |
+| Explain and retry | User can reformulate safely |
+| Human escalation | High-stakes or ambiguous cases |
+| Safe alternative | Provide adjacent allowed help |
+
+Example for education: instead of completing an assignment, the assistant can explain concepts, ask guiding questions, review a draft, or suggest a study plan.
+
+### Monitoring and Observability
+
+Guardrails must be observable in production.
+
+Monitor:
+
+- Guardrail trigger rates.
+- False positive reports.
+- False negative reports.
+- Latency added by safety layers.
+- Cost added by moderation or verification.
+- Repeated bypass attempts.
+- Bias and fairness metrics over time.
+- Retrieval failures and grounding failures.
+- Human escalation rates.
+
+Safety metrics should be tracked alongside normal product metrics.
+
+### Alerting
+
+Alerts should be actionable, not merely informative.
+
+Alert on:
+
+- Sudden spikes in guardrail triggers.
+- Repeated bypass attempts from the same user or source.
+- Guardrail mechanisms failing open.
+- Fairness metrics degrading.
+- High-risk categories appearing unexpectedly.
+- Sharp increases in user reports or escalations.
+
+Do not alert on every individual guardrail trigger. That creates noise and alert fatigue.
+
+### Incident Response
+
+Safety incidents need documented playbooks before they happen.
+
+Incident response stages:
+
+1. **Contain**: disable affected functionality if necessary.
+2. **Investigate**: identify what happened and which guardrail failed.
+3. **Remediate**: fix the immediate issue.
+4. **Learn**: update tests, filters, prompts, policies, and monitoring.
+5. **Communicate**: inform affected users and stakeholders where appropriate.
+
+Incident response is part of the safety system, not an afterthought.
+
+### Cost-Benefit Analysis of Safety Mechanisms
+
+Safety mechanisms impose costs:
+
+- More latency.
+- More compute.
+- More model calls.
+- More development work.
+- More maintenance.
+- More false positives.
+
+They also provide benefits:
+
+- Reduced harm.
+- Regulatory compliance.
+- User and stakeholder trust.
+- Better understanding of system behaviour.
+- Lower incident risk.
+
+The target is not "maximum safety at all costs". The target is **appropriate safety for the use case**.
+
+### Testing Guardrails
+
+Guardrails should be tested adversarially.
+
+Testing methods:
+
+- **Red teaming**: deliberately attempt to bypass safety controls.
+- **Fuzzing**: generate unusual or malformed inputs automatically.
+- **Prompt injection tests**: test direct and indirect injection attempts.
+- **Bias test suites**: use matched prompts across demographic groups.
+- **Regression tests**: ensure old failures do not reappear.
+- **External penetration testing**: use outside experts for high-stakes systems.
+- **Bug bounties**: incentivise responsible reporting.
+
+Mindset: assume guardrails can be bypassed and test that assumption continuously.
+
+### Ethical Considerations and Transparency
+
+Guardrails encode value judgments. Teams should be explicit about those judgments.
+
+Questions to ask:
+
+- Who decided what counts as safe?
+- Were affected communities consulted?
+- Are trade-offs between safety goals documented?
+- Can users understand why content was blocked or modified?
+- Are guardrails protecting users, the organisation, or both?
+- Is the system fair across different groups and contexts?
+
+Transparency principle: users should understand how safety mechanisms affect their experience, especially when content is refused, altered, escalated, or logged.
+
+### High-Stakes Example: Medical Triage Assistant
+
+For a medical triage assistant, high-priority guardrails include:
+
+- Conservative advice under uncertainty.
+- Clear escalation for urgent symptoms.
+- Strong refusal boundaries for diagnosis certainty.
+- Medical disclaimers and professional consultation guidance.
+- Bias testing across demographic groups and access-to-care contexts.
+- Monitoring for unsafe under-triage or over-triage.
+- Human review for risky cases.
+- Audit logs for safety and compliance.
+
+This example shows why domain context matters: the cost of a false negative may be severe.
+
+### Emerging Safety Challenges
+
+Future guardrail problems include:
+
+- **Multi-agent systems**: multiple models interacting can create new failure modes.
+- **Real-time systems**: latency constraints may limit moderation and verification.
+- **Multimodal models**: text, image, audio, and video introduce new attack surfaces.
+- **Personalised models**: adaptation to users can create fairness and privacy risks.
+- **Tool-using agents**: unsafe outputs may become unsafe actions.
+- **Indirect prompt injection**: malicious content in retrieved documents or external tools can steer the model.
+
+Safety designs must evolve as model capabilities and deployment patterns change.
+
+### Key Takeaways
+
+- Defence in depth is non-negotiable because any single guardrail can fail.
+- Context determines appropriate safety: high-stakes domains need more conservative controls.
+- Technical guardrails implement policy decisions; they do not remove the need for governance.
+- Monitoring, red teaming, and incident response are continuous practices.
+- Bias mitigation requires measurement, policy decisions, and technical support.
+- Output validation, grounding, and business rules make AI systems more reliable.
+- Transparency and accountability are as important as technical robustness.
