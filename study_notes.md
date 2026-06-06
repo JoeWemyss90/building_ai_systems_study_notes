@@ -2737,3 +2737,622 @@ Safety designs must evolve as model capabilities and deployment patterns change.
 - Bias mitigation requires measurement, policy decisions, and technical support.
 - Output validation, grounding, and business rules make AI systems more reliable.
 - Transparency and accountability are as important as technical robustness.
+
+---
+
+## Lecture 09: Model Context Protocol (MCP) & Tool Integration
+
+> Synthesised from Week 9 PDF: MCP & Tools.
+
+### Why Models Need Tools
+
+LLMs are powerful language systems, but they have hard limitations:
+
+- They are frozen at training time.
+- They cannot access real-time data by default.
+- They cannot perform deterministic operations reliably on their own.
+- They lack direct access to private databases, APIs, files, or business systems.
+- They cannot safely perform real-world actions without controlled integration.
+
+Tools extend LLMs from **text generators** into **systems that can retrieve, calculate, act, and interact with external services**.
+
+Examples:
+
+- Check current weather.
+- Query a database.
+- Search a product catalogue.
+- Create a calendar event.
+- Run code.
+- Send a support ticket.
+- Retrieve private enterprise data with permissions.
+
+### RAG vs. MCP
+
+RAG and MCP solve related but different problems.
+
+| Aspect | RAG | MCP |
+|--------|-----|-----|
+| Primary goal | Improve answers using retrieved knowledge | Standardise how AI apps access tools, data, and services |
+| Mechanism | Retrieve documents and add them to the prompt | Client-server protocol for tools, resources, and prompts |
+| Typical output | Better grounded answer | Tool calls, actions, structured data access |
+| Standardisation | Architectural pattern, not a universal protocol | Open protocol for reusable integrations |
+| Best for | Knowledge lookup, Q&A, document grounding | Actions, APIs, real-time data, agent workflows |
+
+Simple distinction:
+
+- **RAG tells the model what to know.**
+- **Tools/MCP let the model do things.**
+
+### What Is MCP?
+
+**Model Context Protocol (MCP)** is an open protocol developed by Anthropic for standardising how AI applications connect to external tools and data sources.
+
+Core properties:
+
+- Client-server architecture.
+- Language and framework agnostic.
+- Supports reusable tool integrations.
+- Decouples tool providers from model providers.
+- Enables AI hosts to discover and invoke external capabilities.
+
+MCP is useful because it avoids every AI application needing custom one-off integrations for every tool or service.
+
+### MCP Architecture
+
+MCP has several key components:
+
+| Component | Role |
+|-----------|------|
+| Host | AI application embedding the LLM, such as an IDE or desktop assistant |
+| MCP Client | Protocol client inside the host that connects to an MCP server |
+| MCP Server | Lightweight program exposing tools, resources, or prompts |
+| External Resource | Data source such as files, databases, APIs, or records |
+| Tool | Executable function the AI application can invoke |
+| Resource | Read-only contextual data exposed to the AI application |
+| Prompt | Reusable prompt template exposed by a server |
+
+Typical flow:
+
+```
+User asks a question
+-> Host receives request
+-> Host/LLM decides a tool is needed
+-> MCP client contacts MCP server
+-> MCP server executes tool or returns resource
+-> Tool result returns to host
+-> LLM uses result to answer the user
+```
+
+Example:
+
+```
+User: What is the weather in Waterford?
+Host -> MCP client -> Weather MCP server
+Weather server -> external weather API
+Weather result -> host
+LLM -> final answer
+```
+
+### MCP Host, Client, and Server Responsibilities
+
+The **host** orchestrates the user interaction:
+
+- Manages the conversation.
+- Sends prompts and context to the LLM.
+- Decides when tools may be used.
+- Routes tool calls through MCP clients.
+- Feeds tool results back to the model.
+- Returns the final response to the user.
+
+The **MCP client** acts as a broker:
+
+- Maintains connection to an MCP server.
+- Discovers tools, resources, and prompts.
+- Sends tool requests.
+- Receives structured results.
+
+The **MCP server** exposes capabilities:
+
+- Implements tools.
+- Provides resources.
+- Provides prompt templates.
+- Handles protocol requests.
+- Connects to files, APIs, databases, or services.
+
+### MCP vs. Traditional Function Calling
+
+Traditional function calling usually means the host application defines a fixed set of local functions and exposes their schemas directly to the model API.
+
+| Traditional Function Calling | MCP |
+|------------------------------|-----|
+| Tightly coupled to one application | Loosely coupled via protocol |
+| Often vendor-specific | Model/provider agnostic |
+| Tools live inside the host app | Tools can live in reusable servers |
+| Limited composability | Mix-and-match server capabilities |
+| Harder to reuse across apps | Designed for reuse |
+
+MCP is not a replacement for function calling at the model level. It is a standardised integration layer around tool and resource access.
+
+### MCP Server Primitives
+
+MCP servers expose three main primitives.
+
+| Primitive | Purpose | Examples |
+|-----------|---------|----------|
+| Tools | Executable functions with possible side effects | Send email, query API, update CRM, create file |
+| Resources | Read-only contextual data | File contents, database record, API response |
+| Prompts | Reusable prompt templates | Report template, analysis framework, few-shot prompt |
+
+Choosing the right primitive matters:
+
+- Use **resources** for read-only data.
+- Use **tools** for actions or computations.
+- Use **prompts** for reusable interaction patterns.
+
+### MCP Client Primitives
+
+MCP also defines primitives that clients can expose:
+
+| Primitive | Purpose |
+|-----------|---------|
+| Sampling | Lets servers request model completions through the client |
+| Elicitation | Lets servers ask the user for additional information |
+| Logging | Lets servers send debugging or monitoring logs to the client |
+
+These allow richer two-way interactions between hosts and servers.
+
+### Tool Calling Fundamentals
+
+Tool calling usually follows this loop:
+
+1. Tool schemas are provided to the model.
+2. User asks a request.
+3. Model decides whether a tool is needed.
+4. Model emits a structured tool call.
+5. Application executes the tool.
+6. Tool returns structured result or error.
+7. Model incorporates the result into the final response.
+
+Good tool schemas are critical because the model relies on descriptions to decide when and how to use tools.
+
+### Tool Description Best Practices
+
+A weak description:
+
+> Gets weather.
+
+A stronger description:
+
+> Retrieves current weather for a specific city. Requires city name and optional country code. Returns temperature, conditions, humidity, and an error if the city is not found.
+
+Good tool descriptions should:
+
+- Say when to use the tool.
+- Define required and optional parameters.
+- Describe expected outputs.
+- Explain constraints and failure modes.
+- Include examples where useful.
+- Avoid vague names and ambiguous behaviour.
+
+Poor descriptions cause the model to call tools at the wrong time or with invalid inputs.
+
+### Multi-Tool Reasoning
+
+Models can use multiple tools to answer one request.
+
+Example:
+
+> "What's the weather like where my next meeting is?"
+
+Possible tool chain:
+
+1. Query calendar tool for next meeting.
+2. Extract meeting location.
+3. Query weather tool for that location.
+4. Summarise weather in relation to the meeting time.
+
+Tool calls can be:
+
+- **Sequential** when later calls depend on earlier results.
+- **Parallel** when calls are independent.
+- **Conditional** when the next tool depends on previous output.
+
+### Building Custom MCP Servers
+
+Development lifecycle:
+
+1. Define capabilities: tools, resources, prompts.
+2. Choose a framework or language, such as Python or TypeScript.
+3. Implement protocol handlers.
+4. Add security controls and validation.
+5. Test with MCP inspector or compatible clients.
+6. Deploy and configure hosts/clients.
+7. Monitor usage, failures, and cost.
+
+For this course, the target maturity is production-ready basics: secure tools, proper schemas, validation, error handling, and monitoring.
+
+### Resource vs. Tool Semantics
+
+Use resources when the server is exposing information.
+
+Examples:
+
+- Read a document.
+- Fetch a database row.
+- Return API data.
+- Provide configuration or metadata.
+
+Use tools when the server performs an operation.
+
+Examples:
+
+- Send an email.
+- Update a record.
+- Create a file.
+- Run a query.
+- Trigger a workflow.
+
+Rule of thumb: if it has side effects or performs an action, treat it as a tool and apply stricter permissions.
+
+### Integrating External APIs
+
+Common API integration patterns:
+
+- REST APIs through HTTP requests.
+- GraphQL query execution.
+- WebSocket streams for real-time data.
+- gRPC for high-performance RPC.
+- Database connectors.
+- Internal enterprise services.
+
+Integration concerns:
+
+- Authentication and secret management.
+- Rate limits.
+- Timeouts and retries.
+- Response validation.
+- Error handling.
+- Cost tracking.
+
+### Handling Tool and API Failures
+
+Failures are expected in production tool use.
+
+Common failure types:
+
+- Network timeout.
+- Invalid credentials.
+- Rate limit exceeded.
+- Service unavailable.
+- Malformed response.
+- Partial failure in batch operations.
+- Permission denied.
+- Invalid tool parameters.
+
+Best practice: return structured errors the model and host can interpret.
+
+Example structured error:
+
+```json
+{
+  "ok": false,
+  "error_type": "rate_limit",
+  "message": "Weather API rate limit exceeded",
+  "retry_after_seconds": 60
+}
+```
+
+This is better than returning an unstructured exception string.
+
+### Security Threat Model for Tool Access
+
+Tool integration increases the attack surface because a probabilistic model can now access valuable systems.
+
+Threats include:
+
+- Prompt injection.
+- Unauthorised data access.
+- Privilege escalation.
+- Data exfiltration.
+- Tool abuse.
+- Denial of service through expensive calls.
+- SQL injection.
+- Shell command injection.
+- File system traversal.
+- Leaking secrets or credentials.
+
+Security must be designed before deployment, not added after incidents.
+
+### Authentication and Authorisation
+
+Tool systems need multi-layer access control.
+
+| Layer | Question |
+|-------|----------|
+| User authentication | Who is making the request? |
+| Tool permissions | Is this user allowed to call this tool? |
+| Resource permissions | Is this user allowed to access this specific data? |
+| Action permissions | Is this user allowed to perform this operation? |
+| Audit trails | Can we reconstruct what happened? |
+| Credential isolation | Are secrets protected from the model and user? |
+
+Important rule: the model should not become a way to bypass normal access control.
+
+### Input Validation and Sanitisation
+
+Tool parameters must be validated against schemas.
+
+Examples:
+
+- Validate IDs are IDs, not arbitrary SQL.
+- Use parameterised queries.
+- Avoid shell execution where possible.
+- Restrict file paths to allowed directories.
+- Enforce input length limits.
+- Rate-limit expensive operations.
+- Validate enum values.
+
+Dangerous pattern:
+
+```python
+cursor.execute(sql)
+```
+
+Safer pattern:
+
+```python
+cursor.execute(
+    "SELECT * FROM users WHERE id = %s",
+    (user_id,)
+)
+```
+
+Never trust model-generated tool arguments without validation.
+
+### Prompt Injection Mitigations for Tools
+
+Prompt injection becomes more dangerous when tools can act.
+
+Mitigations:
+
+- Reinforce system-level instructions.
+- Validate tool arguments programmatically.
+- Require confirmation for sensitive actions.
+- Use human-in-the-loop approval for critical operations.
+- Restrict tools by user role and context.
+- Log and monitor tool usage.
+- Detect anomalous call patterns.
+- Separate untrusted retrieved content from trusted instructions.
+- Avoid giving broad tools when narrow tools would suffice.
+
+Example: prefer `get_invoice_by_id(invoice_id)` over `run_arbitrary_sql(sql)`.
+
+### Performance Optimisation for Tool Execution
+
+Tool calls can dominate latency.
+
+Optimisation strategies:
+
+- Cache tool results.
+- Run independent tools in parallel.
+- Lazy-load resources only when needed.
+- Optimise response size.
+- Use connection pooling.
+- Set timeouts.
+- Avoid unnecessary tool calls.
+
+Caching location depends on the architecture:
+
+- **Host cache**: useful for user/session-level repeated requests.
+- **Client cache**: useful across a specific server connection.
+- **Server cache**: useful for shared external API calls and expensive computations.
+
+The right choice depends on data freshness, permissions, and reuse patterns.
+
+### Monitoring and Observability
+
+Tool systems need detailed observability.
+
+Track:
+
+- Latency per tool: p90, p95, p99.
+- Success and failure rates.
+- Error categories.
+- Cost per API call.
+- Tool usage frequency.
+- User and tenant usage patterns.
+- Anomalous or suspicious tool usage.
+- Distributed traces across host, client, server, and external API.
+
+Observability helps debug failures, control costs, and identify security incidents.
+
+### Advanced Tool Integration Patterns
+
+Advanced systems use more than one-off tool calls.
+
+Patterns:
+
+- **Tool composition**: combine several tools into a workflow.
+- **Tool chaining**: output of one tool becomes input to another.
+- **Conditional execution**: choose tools based on intermediate results.
+- **Parallel execution**: run independent calls concurrently.
+- **Result validation**: verify tool outputs before using them.
+- **Retry logic**: retry transient failures safely.
+- **Dynamic discovery**: discover available tools from MCP servers.
+- **Tool versioning**: manage changes without breaking clients.
+
+These patterns improve capability but increase complexity, so they should be justified by use case needs.
+
+### Error Recovery Strategies
+
+Production tools should degrade gracefully.
+
+Recovery techniques:
+
+- Fallback tools or alternate data sources.
+- Partial success handling.
+- Circuit breakers for failing services.
+- Exponential backoff with jitter.
+- Clear user notification when a tool is unavailable.
+- Retry only when safe and idempotent.
+- Escalation for critical failures.
+
+Example: if a live stock-price API fails, a system might return the latest cached value with a timestamp and warning.
+
+### Testing Tool Integrations
+
+Testing should cover correctness, reliability, security, and scale.
+
+| Test Type | Purpose |
+|-----------|---------|
+| Unit tests | Validate individual tool logic |
+| Integration tests | Verify live API/database behaviour |
+| Mock tests | Test without depending on external services |
+| Adversarial tests | Find injection and abuse paths |
+| Load tests | Measure behaviour under high traffic |
+| Chaos tests | Verify resilience to failures |
+| Regression tests | Ensure fixed bugs do not return |
+
+Tools are production software components and should be tested like production software.
+
+### Evaluating Tool Effectiveness
+
+Metrics for tool quality:
+
+- **Precision**: how often the tool returns correct results.
+- **Recall**: whether the tool finds all relevant information.
+- **Latency**: especially p95 and p99 response times.
+- **Cost efficiency**: value per API call.
+- **Robustness**: behaviour on edge cases and failures.
+- **Usefulness**: whether tool use improves final answer or task completion.
+- **Safety**: whether tool access respects permissions and policy.
+
+Tool evaluation should measure both tool output and final model behaviour after using the tool.
+
+### Ethical Considerations
+
+Responsible tool integration requires:
+
+- Transparency: users should know when AI uses tools.
+- Accountability: tool actions should have audit trails.
+- Consent: sensitive operations should require approval.
+- Privacy: tools should not expose unnecessary data.
+- Bias awareness: tools can amplify existing system biases.
+- Environmental awareness: high-volume tool/model calls consume resources.
+
+Sensitive example: an AI assistant with access to employee performance reviews, salary information, medical leave records, and calendars needs strict access limits, auditing, and explicit policies.
+
+### Integration Patterns Summary
+
+Key architectural choices:
+
+| Choice | Options |
+|--------|---------|
+| Coupling | Tight local function calls vs. loose MCP integration |
+| Execution | Synchronous vs. asynchronous |
+| State | Stateless tools vs. stateful sessions |
+| Scope | Single-purpose tools vs. multi-capability tools |
+| Deployment | Local process vs. remote service |
+| Discovery | Static tool list vs. dynamic MCP discovery |
+
+Trade-offs must be evaluated for the use case rather than chosen abstractly.
+
+### Common Pitfalls
+
+- Over-engineering tool ecosystems.
+- Insufficient error handling.
+- Ignoring security until too late.
+- Poor tool descriptions that confuse models.
+- Not monitoring costs and performance.
+- Coupling tool implementation too tightly to one model provider.
+- Giving models broad tools when narrow tools would be safer.
+- Returning unstructured errors that the model cannot recover from.
+
+### Tool Integration Maturity Model
+
+| Level | Description |
+|-------|-------------|
+| 1. Basic | Hardcoded functions, little or no error handling |
+| 2. Functional | Proper schemas and basic validation |
+| 3. Production | Security, monitoring, error recovery |
+| 4. Advanced | Dynamic discovery, versioning, optimisation |
+| 5. Autonomous | Adaptive and self-improving tool ecosystems |
+
+For this course, aim for **Level 3: Production**.
+
+That means:
+
+- Clear tool schemas.
+- Input validation.
+- Access control.
+- Structured errors.
+- Monitoring.
+- Retries and graceful degradation.
+- Documentation.
+- Tests.
+
+### Cross-Cutting Concerns
+
+Every production tool integration must address:
+
+| Concern | Requirement |
+|---------|-------------|
+| Security | Validate inputs, control access, log actions |
+| Reliability | Handle failures, retry safely, degrade gracefully |
+| Performance | Manage latency, caching, response size, and cost |
+| Observability | Trace execution and collect useful metrics |
+| Maintainability | Document tools, test thoroughly, design for change |
+
+Ignoring any one of these usually creates production risk.
+
+### When Are Tools the Right Solution?
+
+Use tools when the system needs:
+
+- Real-time information.
+- Deterministic computation.
+- External API access.
+- Private data access with permissions.
+- Actions with side effects.
+- Workflow automation.
+
+Prefer RAG when the main need is:
+
+- Answering from documents.
+- Reducing hallucination with knowledge grounding.
+- Searching static or semi-static knowledge bases.
+
+Prefer fine-tuning when the main need is:
+
+- Changing style or behaviour.
+- Teaching task format.
+- Improving domain-specific response patterns.
+
+Do not add tools just because they are available. Tool integration adds complexity, security risk, latency, and operational cost.
+
+### Preparing Tool Systems for Production
+
+Production readiness includes:
+
+- Hosting and scaling plans.
+- CI/CD for tool updates.
+- Versioning and compatibility management.
+- Monitoring and alerting.
+- Incident response procedures.
+- Cost forecasting.
+- Security review.
+- Permission model.
+- Audit trails.
+- Documentation for operators and users.
+
+Prototype success does not imply production readiness.
+
+### Key Takeaways
+
+- MCP standardises AI-tool communication and enables reusable, interoperable tool ecosystems.
+- RAG retrieves knowledge; MCP/tools enable actions, real-time data, and structured service access.
+- Good tool schemas are essential because models rely on descriptions to choose and call tools correctly.
+- Security is fundamental: validate inputs, enforce access control, isolate credentials, and audit tool calls.
+- Failure is expected, so tools need structured errors, retries, fallbacks, and graceful degradation.
+- Observability enables improvement: measure latency, cost, success rates, failures, and anomalous use.
+- Architecture choices such as coupling, state, scope, and deployment determine long-term system quality.
