@@ -3824,3 +3824,603 @@ Key implementation concerns:
 - Multi-agent systems provide specialisation but add coordination overhead.
 - Evaluation and debugging are continuous practices because agent behaviour is non-deterministic.
 - Production agents need monitoring, safety controls, scalability planning, and ethical oversight.
+
+---
+
+## Lecture 11: System Integration & Production Deployment
+
+> Synthesised from Week 11 PDF: Integration & Deployment.
+
+### From Prototype to Production
+
+Production AI systems are different from local demos.
+
+Prototype assumptions that break in production:
+
+- Your laptop is not production.
+- Test data is not real data.
+- Working once is not reliability.
+- Synchronous local execution does not match distributed asynchronous systems.
+- Manual testing does not prove production readiness.
+- Small user volume does not reveal scaling, cost, or latency problems.
+
+The production question is not "does it work once?" It is:
+
+> Can it work reliably, safely, observably, and economically under real load?
+
+### Production Foundations
+
+Production AI systems need:
+
+- Clear architecture.
+- State management.
+- Fault tolerance.
+- Scalability.
+- Cost control.
+- Observability.
+- CI/CD.
+- Rollback strategy.
+- Security and compliance.
+- Evaluation and monitoring loops.
+
+AI deployment is not just model deployment. It is full system deployment.
+
+### Architecture Patterns for AI Systems
+
+Key architecture choices:
+
+| Choice | Options | Trade-Off |
+|--------|---------|-----------|
+| Service shape | Monolith vs. microservices | Simplicity vs. independent scaling |
+| Workload style | Synchronous vs. asynchronous | Simpler UX vs. better resilience |
+| Compute model | Lambda/serverless vs. persistent services | Elasticity vs. cold-start and state issues |
+| State storage | In-memory, database, vector DB, cache | Speed vs. durability and consistency |
+| Model hosting | Local, self-hosted, managed API | Control/cost/privacy vs. operational burden |
+
+AI systems often need a mix:
+
+- API service for user requests.
+- Queue for async work.
+- Worker pool for long-running tasks.
+- Vector database for retrieval.
+- Cache for repeated prompts and embeddings.
+- Observability service for traces and metrics.
+- Model gateway or LLM factory for provider/model routing.
+
+### Production Architecture Pattern
+
+A common production pattern:
+
+```
+User/API request
+-> API gateway
+-> Authentication and rate limiting
+-> Application service
+-> Queue for slow or async work
+-> Worker service
+-> LLM/model provider
+-> Vector database / tools / external APIs
+-> Cache
+-> Observability/logging
+-> Response or callback
+```
+
+The queue matters because LLM calls and tool workflows can be slow, bursty, and failure-prone.
+
+### Environment-Specific Model Selection
+
+Production systems often use different models in different environments.
+
+Example pattern:
+
+| Environment | Model Choice | Reason |
+|-------------|-------------|--------|
+| Development | Local model via Ollama | Cheap, private, fast iteration |
+| Staging | Similar to production but lower scale | Test realistic behaviour |
+| Production | Managed high-reliability model or self-hosted optimised model | Reliability, monitoring, support |
+
+A factory pattern can centralise model creation so timeouts, retries, model choice, and environment settings are consistent.
+
+### The Stateless Illusion
+
+LLMs are stateless, but AI applications are not.
+
+Production systems must manage:
+
+- User sessions.
+- Conversation history.
+- Retrieval context.
+- Agent memory.
+- Tool state.
+- User preferences.
+- Tenant-specific permissions.
+- Workflow progress.
+
+Context windows force architectural decisions:
+
+- What recent context is always included?
+- What old context is summarised?
+- What memory is retrieved?
+- What is persisted?
+- What is deleted?
+
+Distributed multi-tenant systems need durable state rather than local process memory.
+
+### Architecture Decision Matrix
+
+Architecture decisions should be made against concrete constraints.
+
+| Constraint | Architectural Implication |
+|------------|---------------------------|
+| Low latency | Streaming, caching, smaller models, persistent services |
+| High throughput | Horizontal scaling, batching, queues, load balancing |
+| Low cost | Caching, model routing, smaller models, batching |
+| High privacy | Local/self-hosted models, strict data boundaries |
+| High reliability | Retries, fallbacks, circuit breakers, observability |
+| Complex workflows | Orchestration, queues, state machines |
+| Multi-tenant use | Access control, isolated state, audit logs |
+
+Good production design is trade-off management.
+
+### Scalability
+
+Scaling has two broad approaches:
+
+| Scaling Type | Description | Works When |
+|--------------|-------------|------------|
+| Vertical scaling | Use bigger machines/GPUs | Bottleneck fits on one larger node |
+| Horizontal scaling | Add more workers/instances | Work can be distributed |
+
+LLM workloads often require horizontal scaling plus careful routing because traffic is bursty and inference is expensive.
+
+Scaling concerns:
+
+- Load balancing.
+- Queue depth.
+- Cold starts.
+- API rate limits.
+- GPU utilisation.
+- Cost per request.
+- Tail latency.
+
+### Cost as a Performance Constraint
+
+In AI systems, cost is part of performance.
+
+Costs come from:
+
+- Input tokens.
+- Output tokens.
+- Embedding generation.
+- Vector database queries/storage.
+- Reranking.
+- Tool/API calls.
+- Model hosting infrastructure.
+- Observability and logging.
+
+An architecture that is fast but economically unsustainable is not production-ready.
+
+### Batching and Throughput Optimisation
+
+Batching improves throughput by processing multiple requests together.
+
+| Strategy | Description |
+|----------|-------------|
+| Static batching | Wait for a fixed batch size or interval |
+| Dynamic batching | Form batches based on live request flow |
+| Continuous batching | Add/remove requests dynamically during generation |
+| Streaming | Return tokens incrementally to improve perceived latency |
+
+Trade-off:
+
+- More batching improves throughput and GPU utilisation.
+- More batching can increase individual request latency.
+
+Tools such as vLLM use continuous batching to improve LLM serving efficiency.
+
+### Caching Strategies That Work
+
+Caching reduces cost and latency, but it must respect freshness, permissions, and correctness.
+
+Cache targets:
+
+| Cache Type | What It Stores |
+|------------|----------------|
+| Prompt-response cache | Responses to repeated prompts |
+| Semantic cache | Responses to semantically similar prompts |
+| Embedding cache | Query/document embeddings |
+| Retrieval cache | Retrieved document sets |
+| Tool/API cache | External API responses |
+| Model output cache | Deterministic or low-temperature generations |
+
+Semantic caching compares prompt embeddings and reuses a cached response when similarity is above a threshold.
+
+Risks:
+
+- Returning stale data.
+- Returning a response across permission boundaries.
+- Reusing an answer when small wording differences matter.
+- Cache invalidation after corpus or policy updates.
+
+Production cache entries need TTLs, invalidation rules, and access scoping.
+
+### Model Optimisation Techniques
+
+Ways to optimise model deployment:
+
+| Technique | Purpose | Trade-Off |
+|-----------|---------|-----------|
+| Quantisation | Use lower precision weights | Faster/smaller, possible quality loss |
+| Pruning | Remove less useful model components | Smaller model, possible accuracy loss |
+| Distillation | Train smaller model to mimic larger one | Lower cost, may lose capability |
+| ONNX/optimised runtimes | Faster inference execution | Requires conversion and compatibility work |
+| Smaller specialised models | Use domain-specific efficient models | Narrower capability |
+
+Smaller models can beat larger models when:
+
+- The task is narrow.
+- Latency matters.
+- Cost constraints are strict.
+- Data privacy requires local deployment.
+- The larger model's generality is unnecessary.
+
+### Performance Profiling
+
+Measure before optimising.
+
+Common bottlenecks:
+
+- Synchronous API calls.
+- Slow embedding generation.
+- Missing cache.
+- Inefficient retrieval.
+- Too many tool calls.
+- Large context windows.
+- Slow output generation.
+- Cold starts.
+- Network latency.
+
+Useful tools:
+
+- Python profiling tools such as `cProfile`.
+- Sampling profilers such as `py-spy`.
+- Tracing tools such as LangSmith.
+- Application metrics dashboards.
+
+### Monitoring vs. Observability
+
+Monitoring and observability are related but different.
+
+| Concept | Meaning |
+|---------|---------|
+| Monitoring | Dashboards and alerts for known failure modes |
+| Observability | Ability to debug unknown failure modes using traces, logs, and metrics |
+
+The three pillars:
+
+- **Metrics**: numeric measurements over time.
+- **Logs**: structured event records.
+- **Traces**: request paths through distributed components.
+
+AI systems need all three because non-deterministic outputs make failures harder to reproduce.
+
+### Metrics That Matter for AI Systems
+
+Track:
+
+- Token consumption.
+- Cost per request.
+- Latency: p50, p95, p99.
+- Error rate.
+- Timeout rate.
+- Model quality drift.
+- Retrieval quality.
+- Tool failure rate.
+- Cache hit rate.
+- User satisfaction.
+- Safety/guardrail trigger rate.
+- Human escalation rate.
+
+Why p99 matters: a system can look healthy on average while a significant minority of users experience severe latency.
+
+### LangSmith and AI Observability
+
+AI-specific tracing tools such as LangSmith help inspect:
+
+- Prompt inputs.
+- Model outputs.
+- Chain steps.
+- Tool calls.
+- Retrieval results.
+- Intermediate agent reasoning.
+- Errors.
+- Latency per component.
+- Token and cost usage.
+
+This is important because LLM failures are often not simple stack traces; they are behavioural failures across prompts, retrieval, tools, and outputs.
+
+### Logging Strategies
+
+Production logging should be structured.
+
+Log useful fields:
+
+- Request ID.
+- User or tenant ID, where appropriate and privacy-safe.
+- Model name/version.
+- Prompt/template version.
+- Tool calls.
+- Latency.
+- Token counts.
+- Error type.
+- Guardrail triggers.
+- Retrieval metadata.
+
+Be careful with:
+
+- PII.
+- Secrets.
+- Full prompts containing sensitive data.
+- User-uploaded documents.
+- Compliance requirements.
+
+Logs should help debugging without creating a privacy breach.
+
+### Production Incident Example
+
+Example failure: 10% of requests time out only during peak hours.
+
+Possible root cause pattern:
+
+- Load balancer routes traffic to cold-start serverless workers.
+- Users retry quickly.
+- Retries increase load.
+- More cold starts occur.
+- Cascading timeouts follow.
+
+Observability that would help:
+
+- Per-component latency traces.
+- Cold-start metrics.
+- Queue depth.
+- Retry counts.
+- Load balancer routing logs.
+- p95/p99 latency by instance type.
+
+Architecture mitigations:
+
+- Warm pools.
+- Queues.
+- Backpressure.
+- Retry budgets.
+- Circuit breakers.
+- Autoscaling based on queue depth.
+
+### Why AI Systems Break Traditional CI/CD
+
+AI systems are harder to test than normal software because:
+
+- Model weights are not ordinary code.
+- Outputs are non-deterministic.
+- Prompt changes can cause behavioural regressions.
+- Data versioning matters as much as code versioning.
+- Evaluation can be subjective and expensive.
+- External APIs and tools affect behaviour.
+
+Traditional unit tests remain useful, but they are not enough.
+
+### Testing Strategies for LLM Applications
+
+| Test Type | Purpose |
+|-----------|---------|
+| Unit tests | Test pipeline code, parsers, validators, and tool wrappers |
+| Integration tests | Test full workflows with models/tools |
+| Golden tests | Compare outputs against expected behaviours |
+| Regression suites | Ensure prompt/model changes do not reintroduce old failures |
+| Evaluation datasets | Measure quality across representative tasks |
+| A/B tests | Compare real production variants |
+| Load tests | Verify behaviour under expected traffic |
+
+In AI systems, the pipeline is often more testable than the model itself.
+
+### Infrastructure as Code
+
+Infrastructure should be reproducible.
+
+Local AI development often needs:
+
+- App service.
+- Local model server such as Ollama.
+- Vector database such as Qdrant.
+- Persistent volumes for model and vector data.
+- Environment variables for service URLs.
+
+Infrastructure as code helps ensure development, staging, and production environments are similar enough to catch integration issues early.
+
+### Deployment Strategies
+
+Safer deployment patterns:
+
+| Strategy | Description |
+|----------|-------------|
+| Blue-green deployment | Maintain old and new environments; switch traffic |
+| Canary release | Roll out to small percentage first |
+| Feature flags | Enable/disable functionality dynamically |
+| Automated rollback | Revert when metrics cross failure thresholds |
+| Shadow deployment | Run new version in parallel without serving users |
+
+These are especially important for AI systems because small prompt/model changes can create unexpected behavioural changes.
+
+### Rollback Triggers
+
+Rollback should be tied to concrete signals:
+
+- Error rate spike.
+- p99 latency increase.
+- Cost per request increase.
+- Guardrail violation spike.
+- User satisfaction drop.
+- Retrieval quality regression.
+- Tool failure increase.
+- Human escalation spike.
+
+Deployment is continuous, not a one-off event.
+
+### Shift to Smaller Specialised Models
+
+Not every task needs a frontier model.
+
+Reasons smaller/specialised models are increasingly important:
+
+- Lower cost.
+- Lower latency.
+- Easier self-hosting.
+- Better privacy.
+- Domain-specific models can outperform general models on narrow tasks.
+- Edge/on-device inference becomes possible.
+
+Production systems may route tasks by complexity:
+
+- Small model for classification or routing.
+- Medium model for routine generation.
+- Large model for complex reasoning.
+- Specialist model for domain-specific work.
+
+### RAG at Scale
+
+Production RAG adds operational complexity:
+
+- Hybrid search: dense + sparse + reranking.
+- Real-time or near-real-time index updates.
+- Index freshness vs. cost.
+- Metadata filtering for permissions.
+- Cache invalidation.
+- Evaluation of retrieval quality.
+- Handling stale, deleted, or restricted documents.
+
+Advanced technique:
+
+- **HyDE**: generate a hypothetical answer/document, embed it, and retrieve documents similar to that generated representation.
+
+### Emerging Hardware and Inference Optimisations
+
+Important trends:
+
+- Custom inference hardware: TPUs, Groq, Cerebras, specialised accelerators.
+- Flash Attention and memory-efficient attention.
+- Speculative decoding for faster generation.
+- Mixture of Experts models, where only part of the model activates per token.
+- vLLM-style serving and continuous batching.
+
+The production landscape changes quickly, so architecture should avoid unnecessary lock-in.
+
+### Future-Scale Architecture Challenges
+
+A future system with 100 million users, multimodal input, sub-100ms latency, multi-step reasoning, and strict cost limits would require:
+
+- Aggressive caching.
+- Edge inference where possible.
+- Model routing.
+- Specialised models.
+- Asynchronous workflows.
+- Streaming.
+- Global load balancing.
+- Efficient multimodal preprocessing.
+- Hardware-aware inference.
+- Strict cost monitoring.
+
+The key question becomes: which parts must be real-time, and which parts can be async or cached?
+
+### Ethical Considerations in Production
+
+Ethical risk increases at scale.
+
+Production concerns:
+
+- Bias amplification.
+- Harmful outputs.
+- Overblocking legitimate content.
+- Unequal performance across groups.
+- Lack of transparency.
+- Environmental impact of inference.
+- Users overtrusting generated outputs.
+
+Ethical monitoring should be part of production dashboards, not a separate afterthought.
+
+Metrics might include:
+
+- Safety trigger rates.
+- False positive reports.
+- False negative reports.
+- Demographic performance disparities.
+- Human escalation rates.
+- Content moderation appeals.
+- Energy/cost per request.
+
+### Regulatory Landscape and Compliance
+
+Production AI systems may need to satisfy:
+
+- EU AI Act risk classification requirements.
+- GDPR data protection obligations.
+- Data retention rules.
+- Right to deletion.
+- Audit trails.
+- Explainability requirements.
+- Access controls.
+- Consent and transparency obligations.
+
+Compliance affects architecture:
+
+- Where data is stored.
+- How logs are retained.
+- How deletion requests propagate.
+- How model inputs/outputs are audited.
+- How user data is isolated.
+
+### Human-in-the-Loop
+
+Human review is important when:
+
+- Decisions are high-stakes.
+- Model confidence is low.
+- Safety filters trigger.
+- Users appeal an outcome.
+- Legal, medical, financial, hiring, or disciplinary decisions are involved.
+
+Human-in-the-loop design should define:
+
+- What gets escalated.
+- Who reviews it.
+- What evidence reviewers see.
+- How decisions are logged.
+- How feedback updates the system.
+
+### Production Readiness Checklist
+
+Before production launch, verify:
+
+- Architecture supports expected traffic.
+- Queues and retries are designed safely.
+- State is durable and scoped by user/tenant.
+- Model/provider failures have fallbacks.
+- Caching respects freshness and permissions.
+- CI/CD includes evaluation and regression tests.
+- Deployment supports canary or blue-green rollout.
+- Rollback triggers are defined.
+- Observability covers metrics, logs, and traces.
+- Cost monitoring is active.
+- Security controls and audit logs are in place.
+- Compliance requirements are documented.
+- Incident response process exists.
+
+### Key Takeaways
+
+- Production architecture requires different thinking than development.
+- State management, asynchronous processing, and fault tolerance become critical at scale.
+- Observability is non-negotiable because AI behaviour is hard to debug without traces, logs, and metrics.
+- Cost and performance are inseparable constraints in AI systems.
+- Caching, batching, model routing, and model selection directly affect system economics.
+- CI/CD for AI must include evaluation, regression suites, A/B testing, and safe rollbacks.
+- Deployment is continuous: use canaries, feature flags, monitoring, and automated rollback triggers.
+- Ethical and regulatory concerns must be monitored in production, not only discussed during design.
