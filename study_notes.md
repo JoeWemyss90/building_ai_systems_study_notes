@@ -1725,3 +1725,517 @@ Architecture decisions that achieved **78% resolution without escalation**, 1.8s
 | Faiss | Facebook's fast ANN search library |
 | vLLM | High-throughput LLM serving |
 | RAGAS | Automated RAG evaluation framework |
+
+---
+
+## Lecture 07: Advanced Retrieval Strategies
+
+> Synthesised from Week 7 PDFs: Introduction & The Retrieval Problem, Hybrid Retrieval Strategies, Metadata Filtering & Query Enhancement, Multi-Modal Content Handling, Performance Optimisation, and Production Deployment & Advanced Topics.
+
+### Why Basic Vector Search Falls Short
+
+Basic vector search retrieves by semantic similarity, but **semantic similarity is not the same as task relevance**.
+
+Common failure modes:
+
+- **Keyword gap**: exact terms, IDs, acronyms, product names, and error codes may matter more than broad semantic meaning.
+- **Context mismatch**: the retrieved document may be topically similar but not useful for the user's actual intent.
+- **Domain terminology**: specialised jargon may not be represented well by general-purpose embeddings.
+- **Production constraints**: retrieval must balance precision, recall, latency, scalability, cost, and complexity.
+
+Good retrieval is a trade-off between:
+
+| Goal | Meaning |
+|------|---------|
+| Precision | Retrieved documents are relevant |
+| Recall | Relevant documents are not missed |
+| Latency | Retrieval is fast enough for production |
+| Scalability | Performance holds at large corpus sizes |
+| Cost | Embeddings, vector DB calls, reranking, and LLM generation remain affordable |
+
+### Hybrid Retrieval
+
+**Hybrid retrieval** combines dense semantic retrieval with sparse keyword retrieval.
+
+- **Dense retrieval**: embedding/vector search; good for meaning, paraphrase, and conceptual similarity.
+- **Sparse retrieval**: keyword/BM25 search; good for exact terms, names, IDs, acronyms, and domain-specific vocabulary.
+- **Hybrid retrieval**: combines both so the system captures meaning and precision.
+
+This is especially useful for:
+
+- Technical documentation with jargon.
+- Legal, medical, or academic material.
+- Queries containing exact error messages, product names, API names, or abbreviations.
+- Corpora where both conceptual similarity and lexical matching matter.
+
+### Reciprocal Rank Fusion (RRF)
+
+RRF combines ranked results from multiple retrievers without needing their raw scores to be directly comparable.
+
+```
+RRF Score = Σ (1 / (k + rank_i))
+```
+
+Where:
+
+- `k` is a constant, often around `60`.
+- `rank_i` is the document's rank in retrieval method `i`.
+- Scores are summed across retrieval methods.
+
+Why RRF is useful:
+
+- It works across retrievers with different scoring scales.
+- It rewards documents that appear highly ranked in multiple result sets.
+- It is simple, robust, and often effective in production search systems.
+
+### Multi-Vector Retrieval
+
+Single-vector retrieval compresses an entire chunk or document into one representation. This can lose important facets of the content.
+
+**Multi-vector retrieval** stores multiple representations for the same source material:
+
+- Summary vectors for high-level meaning.
+- Detailed chunk vectors for precise local matches.
+- Question vectors representing likely user queries.
+- Answer vectors representing direct response content.
+- Structural vectors for titles, conclusions, headings, or key sections.
+
+This improves retrieval when different users ask about the same document from different angles.
+
+### Parent Document Retrieval
+
+Parent document retrieval solves the **chunk size dilemma**:
+
+- Small chunks improve retrieval precision.
+- Large chunks provide better context for generation.
+
+Pattern:
+
+```
+Full Document
+├── Small child chunk 1 (embedded and indexed)
+├── Small child chunk 2 (embedded and indexed)
+└── Small child chunk 3 (embedded and indexed)
+        ↓
+Retrieve matching child chunk
+        ↓
+Return larger parent section/document to the LLM
+```
+
+Key idea: **retrieve small, return large**.
+
+This allows precise matching without starving the LLM of surrounding context.
+
+### Multi-Query Retrieval
+
+Users often write ambiguous, incomplete, or poorly phrased queries. Multi-query retrieval uses an LLM to generate several alternative phrasings, retrieves with each, then merges the results.
+
+Example query:
+
+> "Why is my RAG system slow?"
+
+Possible expansions:
+
+- "RAG retrieval latency bottlenecks"
+- "How to optimise vector database search speed"
+- "Embedding generation and LLM context latency"
+- "RAG performance profiling techniques"
+- "Caching strategies for retrieval augmented generation"
+
+Benefits:
+
+- Improves recall.
+- Handles ambiguous intent.
+- Retrieves documents that one wording alone might miss.
+
+Trade-off: it increases retrieval cost and latency because multiple searches are performed.
+
+### Metadata Filtering
+
+Not all useful retrieval information belongs in embeddings. Structured facts should be stored as metadata and used as filters.
+
+Useful metadata fields:
+
+| Field | Example Use |
+|-------|-------------|
+| Document type | policy, lecture, paper, report |
+| Date | retrieve only recent documents |
+| Author | restrict to a named source |
+| Department/category | HR, engineering, finance, AI systems |
+| Access level | public, internal, confidential |
+| Version | avoid outdated policies or docs |
+| Language | retrieve only English, Irish, French, etc. |
+| Source | website, PDF, database, wiki |
+
+Best practice: **filter first, then retrieve**.
+
+This reduces the candidate set before vector search, improving speed and relevance.
+
+### Self-Query Retrieval
+
+Self-query retrieval uses an LLM to convert natural language into:
+
+- A semantic search query.
+- Structured metadata filters.
+
+Example:
+
+> "Find recent machine learning papers about transformers"
+
+The LLM might extract:
+
+- Semantic query: `"transformers"`
+- Metadata filters: `topic = "machine learning"`, `date = recent`
+
+This is useful when users do not know the available metadata schema or when manually specifying filters would be clumsy.
+
+Risk: the LLM can misinterpret the user's intent or generate unsupported filters, so metadata schemas should be explicit and validated.
+
+### Designing Metadata Schemas
+
+Good metadata schemas are driven by expected query patterns.
+
+For a university course repository, useful metadata might include:
+
+- Module code and module title.
+- Lecture/week number.
+- Topic.
+- Academic year.
+- Lecturer.
+- File type.
+- Assessment relevance.
+- Difficulty level.
+- Learning outcome.
+- Access permission.
+- Last updated date.
+
+Design questions:
+
+- What will users commonly filter by?
+- Which filters improve performance most?
+- Which metadata fields must be exact and reliable?
+- Which fields affect access control or compliance?
+- Which fields are likely to change over time?
+
+### Multi-Modal Retrieval
+
+Real knowledge bases often contain more than text:
+
+- Images and diagrams.
+- Charts and plots.
+- Tables and spreadsheets.
+- Audio and video.
+- PDFs with mixed layouts.
+
+Strategies:
+
+| Content Type | Retrieval Strategy |
+|--------------|-------------------|
+| Images/diagrams | Generate captions; use CLIP-style image-text embeddings |
+| Scanned documents | OCR, then embed extracted text |
+| Tables | Preserve structure; create summaries or question-answer pairs |
+| Audio/video | Transcribe with speech-to-text, then index transcript |
+| Mixed PDFs | Route each section by modality and preserve source metadata |
+
+Important principle: **do not flatten everything blindly into plain text**. Some information, especially tables and diagrams, loses meaning when structure is discarded.
+
+### Handling Tables
+
+Tables are difficult because row/column relationships carry meaning.
+
+Possible strategies:
+
+- Embed table title, caption, and surrounding text.
+- Store the full table as context for generation.
+- Convert table rows into natural-language statements.
+- Generate likely question-answer pairs from the table.
+- Use table-specific models where appropriate.
+- Keep metadata about columns, units, source, and date.
+
+Choose the strategy based on query type:
+
+- Lookup queries need exact cells.
+- Comparison queries need row/column relationships.
+- Summary queries need natural-language descriptions.
+- Analytical queries may need code execution or database querying rather than embedding search alone.
+
+### Performance Bottlenecks in RAG
+
+Time in a RAG pipeline is usually spent across several stages:
+
+1. Query embedding generation.
+2. Vector similarity search.
+3. Document loading.
+4. Context preparation.
+5. Reranking or compression.
+6. LLM generation.
+
+Rule: **measure before optimising**. Different bottlenecks require different fixes.
+
+### Optimising Embedding Generation
+
+Strategies:
+
+- Cache embeddings for common queries.
+- Batch embeddings where possible.
+- Use smaller embedding models when latency matters more than peak accuracy.
+- Use asynchronous processing for non-blocking operations.
+- Compare local and remote embedding models.
+
+Trade-offs:
+
+| Option | Benefit | Cost |
+|--------|---------|------|
+| Remote embeddings | Easy scaling, strong models | Network latency, API limits, recurring cost |
+| Local embeddings | Privacy, lower marginal cost | Hardware limits, maintenance, batching complexity |
+| Smaller models | Faster and cheaper | Lower retrieval quality |
+| Larger models | Better semantic matching | Slower and more expensive |
+
+### Vector Index Strategies
+
+Vector databases use different index structures depending on scale and accuracy requirements.
+
+| Index Type | Description | Trade-Off |
+|------------|-------------|-----------|
+| Flat index | Exact nearest-neighbour search | Accurate but slow at scale |
+| HNSW | Graph-based approximate nearest neighbour search | Fast but memory-intensive |
+| IVF | Cluster-based inverted file index | Faster search, possible recall loss |
+| Product Quantisation | Compresses vectors | Lower memory, possible accuracy loss |
+
+Choose based on corpus size, latency target, memory budget, and acceptable recall loss.
+
+### Retriever Parameters
+
+Common parameters to tune:
+
+| Parameter | Meaning |
+|-----------|---------|
+| `k` | Number of final documents returned |
+| `fetch_k` | Number of candidates fetched before reranking/filtering |
+| `score_threshold` | Minimum similarity score required |
+| Distance metric | Cosine, dot product, Euclidean, etc. |
+| HNSW `M` | Graph connectivity |
+| HNSW `ef` | Search/build accuracy-speed trade-off |
+
+A common production pattern is:
+
+1. Retrieve more candidates than needed.
+2. Apply filters and reranking.
+3. Keep only the best small set for generation.
+
+### Reranking and Context Compression
+
+LLM generation cost and latency grow with context length. Retrieval should not blindly stuff every matching chunk into the prompt.
+
+Strategies:
+
+- **Reranking**: retrieve many candidates, then keep the best few.
+- **Compression**: summarise retrieved documents before generation.
+- **Extraction**: include only relevant snippets.
+- **Structured pruning**: remove boilerplate, navigation text, headers, footers, and duplicates.
+
+Trade-off: smaller context is faster and cheaper, but excessive compression can remove evidence the LLM needs.
+
+### Caching Strategies
+
+Caching can reduce latency and cost, but stale data can damage trust.
+
+| Cache Type | Key | Value |
+|------------|-----|-------|
+| Query cache | User query | Final answer or retrieval result |
+| Embedding cache | Query string | Query embedding |
+| Retrieval cache | Query embedding/hash | Retrieved documents |
+| Generation cache | Query + retrieved context | LLM response |
+
+Use TTL policies and invalidate caches when the corpus changes.
+
+Caching fit by use case:
+
+- Customer support: strong fit for repeated questions.
+- Research search: use cautiously; freshness matters.
+- Internal knowledge base: useful, but must respect permissions and document updates.
+
+### Handling Corpus Updates
+
+Production retrieval systems need update strategies.
+
+Options:
+
+- **Batch reindexing**: periodically rebuild the whole index.
+- **Incremental updates**: add, update, or delete individual documents.
+- **Shadow indices**: build a new index in parallel, then swap atomically.
+- **Read replicas**: improve availability during heavy read traffic.
+
+Challenges:
+
+- Zero-downtime updates are difficult.
+- Cache invalidation must align with index updates.
+- Deleted or restricted documents must not remain retrievable.
+
+### Building Evaluation Datasets
+
+Retrieval quality cannot be improved reliably without ground truth.
+
+Evaluation dataset sources:
+
+- Manually curated question-answer pairs.
+- LLM-generated synthetic queries, checked by humans.
+- Real user query logs with feedback.
+- Adversarial examples covering known failures.
+
+Best practices:
+
+- Cover diverse query types and difficulty levels.
+- Match the production query distribution.
+- Include edge cases and ambiguous queries.
+- Refresh the dataset over time because corpora and user needs change.
+
+### Retrieval Evaluation Metrics
+
+| Metric | Question Answered |
+|--------|-------------------|
+| Precision@k | Of the top `k` retrieved documents, how many are relevant? |
+| Recall@k | Of all relevant documents, how many were retrieved in the top `k`? |
+| MRR | How high is the first relevant result ranked? |
+| NDCG | Are more useful documents ranked higher than less useful ones? |
+
+Retrieval evaluation requires labelled relevant documents. Without labels, tuning is mostly guesswork.
+
+### A/B Testing Retrieval Strategies
+
+Use A/B tests to compare retrieval configurations in production-like conditions.
+
+Examples:
+
+- Baseline vector search vs. hybrid retrieval.
+- One embedding model vs. another.
+- No reranker vs. reranker.
+- Different chunk sizes or metadata filters.
+
+Rollout pattern:
+
+```
+5% users → 20% users → 50% users → 100% users
+```
+
+Track:
+
+- Retrieval precision and recall.
+- Answer quality.
+- Latency.
+- Cost per query.
+- User engagement or satisfaction.
+- Escalation or failure rate.
+
+### Query Planning
+
+Complex questions often require more than one retrieval step.
+
+Example:
+
+> "Compare the performance of method A and method B"
+
+A query planner might:
+
+1. Retrieve documents about method A.
+2. Retrieve documents about method B.
+3. Retrieve evaluation or benchmark data.
+4. Synthesize a comparison.
+5. Verify the answer against retrieved evidence.
+
+This leads to advanced RAG architectures:
+
+```
+Query
+→ Query planning
+→ Multiple retrievals
+→ Filtering and reranking
+→ Context compression
+→ Structured generation
+→ Verification/refinement
+→ Answer
+```
+
+### Production Checklist
+
+Production RAG systems need more than retrieval accuracy.
+
+Checklist:
+
+- Error handling for retrieval failures, empty results, and timeouts.
+- Monitoring for latency, costs, quality, and failure rates.
+- Rate limiting to protect APIs and infrastructure.
+- Data privacy and access control.
+- Compliance requirements such as GDPR, retention rules, and audit logs.
+- Scalability testing at 10x or 100x expected load.
+- Cache invalidation and stale-data handling.
+- Evaluation datasets and regression tests.
+
+### Cost Considerations
+
+Costs compound quickly in retrieval systems:
+
+- Embedding generation.
+- Vector database storage and queries.
+- Reranking.
+- LLM generation.
+- Monitoring and infrastructure.
+
+Local models can reduce recurring API spend, but they introduce hardware, operations, and maintenance costs.
+
+Decision factors:
+
+- Query volume.
+- Latency target.
+- Privacy requirements.
+- Team expertise.
+- Hardware availability.
+- Accuracy requirements.
+
+### Choosing a Retrieval Strategy
+
+| Use Case | Recommended Strategy |
+|----------|---------------------|
+| Technical docs with jargon | Hybrid dense + sparse retrieval |
+| Exploratory search | Multi-query retrieval |
+| Large corpus with fast queries | Strong metadata filtering |
+| Mixed media content | Multi-modal embeddings and routing |
+| High-volume, cost-sensitive system | Local models plus aggressive caching |
+| Domain-specific, high-accuracy system | Reranking plus verification |
+
+### Build vs. Buy
+
+| Approach | Benefits | Costs/Risks |
+|----------|----------|-------------|
+| Build | Full control, customisation, less vendor lock-in | Requires expertise, maintenance, infrastructure |
+| Buy | Faster deployment, managed scaling, lower operational burden | Ongoing costs, less control, vendor dependency |
+| Hybrid | Managed vector store plus custom retrieval logic | Still requires integration and evaluation work |
+
+Decision factors:
+
+- Team size and skillset.
+- Budget.
+- Timeline.
+- Compliance and privacy requirements.
+- Required scale.
+- Need for custom retrieval logic.
+
+### Common Pitfalls
+
+- **Over-engineering too early**: start simple, then add complexity when evaluation shows a need.
+- **Ignoring evaluation**: without metrics, improvements are guesses.
+- **Forgetting cost monitoring**: API and generation costs can grow quickly.
+- **Weak error handling**: production failures often come from timeouts, empty retrievals, or dependency outages.
+- **Bad cache invalidation**: stale answers erode user trust.
+- **Optimising the wrong bottleneck**: profile before tuning.
+- **Testing only on small corpora**: behaviour at 100 documents may not predict behaviour at 100,000.
+
+### Key Takeaways
+
+- Advanced retrieval is about **strategic selection**, not just nearest-neighbour search.
+- Hybrid retrieval usually beats single-method retrieval when both meaning and exact wording matter.
+- Metadata filtering is one of the simplest and highest-impact performance improvements.
+- Multi-vector and parent-document retrieval help balance precision with useful context.
+- Reranking and compression reduce context cost while preserving relevance.
+- Evaluation datasets, A/B tests, and production monitoring are required for reliable improvement.
+- Production RAG is a trade-off between precision, recall, latency, cost, privacy, and operational complexity.
